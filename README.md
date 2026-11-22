@@ -6,6 +6,7 @@ A lightweight, feature-rich multi-account Steam hour booster with a modern deskt
 
 ## ✨ Features
 
+- **Built with 100% Rust**: Engineered in pure Rust for blazing-fast performance, memory safety, and ultra-low CPU/RAM footprint (~50 MB RAM).
 - **Multi-Account Boosting**: Boost hours simultaneously across multiple Steam accounts.
 - **Multi-Game Boosting**: Select and boost up to 32 games per account at the same time.
 - **QR Code & Token Login**: Quick and secure QR code authentication, stored session refresh tokens (no need to re-enter credentials), and Shared Secret (auto-2FA TOTP) support.
