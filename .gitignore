@@ -1,0 +1,22 @@
+# ── Rust / Cargo ──
+/target/
+**/target/
+Cargo.lock
+
+# ── IDE & Editor ──
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+
+# ── OS Generated ──
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Local User Data / Credentials ──
+booster_config.json
+accounts.json
+*.log
