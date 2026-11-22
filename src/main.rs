@@ -15,6 +15,8 @@ mod telegram;
 
 use eframe::egui;
 
+const APP_ICON_PNG: &[u8] = include_bytes!("../assets/icon.png");
+
 fn main() -> eframe::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let start_minimized = args.iter().any(|arg| arg == "--minimized" || arg == "--tray" || arg == "--background");
@@ -22,8 +24,11 @@ fn main() -> eframe::Result<()> {
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("SteamBooster v0.2.0")
         .with_inner_size([1000.0, 680.0])
-        .with_min_inner_size([780.0, 520.0])
-        .with_icon(eframe::icon_data::from_png_bytes(&[]).unwrap_or_default());
+        .with_min_inner_size([780.0, 520.0]);
+
+    if let Ok(icon) = eframe::icon_data::from_png_bytes(APP_ICON_PNG) {
+        viewport = viewport.with_icon(icon);
+    }
 
     if start_minimized {
         viewport = viewport.with_visible(false);

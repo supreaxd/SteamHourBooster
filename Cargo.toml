@@ -29,6 +29,9 @@ lto = true
 codegen-units = 1
 strip = true
 
+[build-dependencies]
+winres = "0.1"
+
 [patch.crates-io]
 steam-vent = { path = "crates/steam-vent" }
 
