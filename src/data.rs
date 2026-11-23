@@ -21,6 +21,12 @@ pub fn update_global_settings(settings: &AppSettings) {
     }
 }
 
+pub fn update_language_and_save(new_lang: Language) {
+    let mut config = AppConfig::load();
+    config.settings.language = new_lang;
+    config.save();
+}
+
 pub const POPULAR_GAMES: &[(&str, u32)] = &[
     ("Counter-Strike 2", 730),
     ("Dota 2", 570),
@@ -182,6 +188,8 @@ pub struct AppSettings {
     pub start_minimized: bool,
     #[serde(default = "default_true")]
     pub minimize_to_tray: bool,
+    #[serde(default)]
+    pub auto_start_boost_on_launch: bool,
     #[serde(default = "default_true")]
     pub auto_pause_game: bool,
     #[serde(default = "default_true")]
@@ -273,6 +281,7 @@ impl Default for AppSettings {
             autostart: false,
             start_minimized: false,
             minimize_to_tray: true,
+            auto_start_boost_on_launch: false,
             auto_pause_game: true,
             encrypt_credentials: true,
             enable_scheduler: false,

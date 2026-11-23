@@ -61,6 +61,9 @@ pub struct SteamBoosterApp {
     // Debug sekmesi filtresi
     debug_filter_category: Option<crate::debug_log::PacketCategory>,
     debug_search_query: String,
+
+    // Sistem Tepsisi (Tray)
+    tray_mgr: Option<crate::tray::TrayManager>,
 }
 
 impl SteamBoosterApp {
@@ -81,6 +84,20 @@ impl SteamBoosterApp {
         // Telegram Bot servisini kaydet ve başlat
         crate::telegram::register_accounts_for_bot(runtime_accounts.clone());
         crate::telegram::init_telegram_bot();
+
+        // Sistem Tepsisi (Tray) yöneticisini başlat
+        let mut tray_mgr = crate::tray::TrayManager::new();
+        if let Some(tray) = &mut tray_mgr {
+            tray.update_status(&runtime_accounts);
+        }
+
+        // Açılışta otomatik boost başlatma aktifse tüm hesapları başlat
+        if config.settings.auto_start_boost_on_launch {
+            for acc in &runtime_accounts {
+                steam::start_boost(acc.clone());
+            }
+            logger::log_info("Auto-start: All accounts started boosting automatically on launch.");
+        }
 
         logger::log_info(&format!("SteamBooster started. {} accounts loaded.", config.accounts.len()));
 
@@ -109,6 +126,7 @@ impl SteamBoosterApp {
             log_filter_level: None,
             debug_filter_category: None,
             debug_search_query: String::new(),
+            tray_mgr,
         }
     }
 
@@ -1161,11 +1179,18 @@ impl SteamBoosterApp {
             let mut tray_minimized_val = self.autostart_minimized;
             if ui.checkbox(&mut tray_minimized_val, s.opt_start_minimized).changed() {
                 self.autostart_minimized = tray_minimized_val;
+                self.config.settings.start_minimized = tray_minimized_val;
                 self.config.settings.minimize_to_tray = tray_minimized_val;
                 if self.autostart_run_key {
                     let _ = autostart::set_registry_autostart(true, tray_minimized_val);
                 }
                 self.config.save();
+            }
+
+            // PC / Uygulama açılışında tüm hesapların boostunu otomatik başlat
+            if ui.checkbox(&mut self.config.settings.auto_start_boost_on_launch, s.opt_auto_start_boost).changed() {
+                self.config.save();
+                logger::log_info(&format!("Auto-start boost setting updated: {}", self.config.settings.auto_start_boost_on_launch));
             }
 
             ui.add_space(6.0);
@@ -1864,6 +1889,41 @@ impl eframe::App for SteamBoosterApp {
 
         self.sync_from_runtime();
         ctx.request_repaint_after(std::time::Duration::from_millis(500));
+
+        // Sistem Tepsisi (Tray) durumunu güncelle ve tıklama olaylarını dinle
+        if let Some(tray) = &mut self.tray_mgr {
+            tray.update_status(&self.runtime_accounts);
+            if let Some(action) = tray.poll_events() {
+                match action {
+                    crate::tray::TrayAction::OpenWindow => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                    }
+                    crate::tray::TrayAction::StartAll => {
+                        for acc in &self.runtime_accounts {
+                            steam::start_boost(acc.clone());
+                        }
+                    }
+                    crate::tray::TrayAction::StopAll => {
+                        for acc in &self.runtime_accounts {
+                            let id = acc.lock().unwrap().id;
+                            steam::stop_boost(id, acc.clone());
+                        }
+                    }
+                    crate::tray::TrayAction::Quit => {
+                        std::process::exit(0);
+                    }
+                }
+            }
+        }
+
+        // Pencere kapatma (X) butonuna basıldığında tepsiye küçült
+        if ctx.input(|i| i.viewport().close_requested()) {
+            if self.config.settings.minimize_to_tray {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            }
+        }
 
         egui::SidePanel::left("sidebar")
             .exact_width(190.0)
