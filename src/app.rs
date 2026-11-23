@@ -64,6 +64,9 @@ pub struct SteamBoosterApp {
 
     // Sistem Tepsisi (Tray)
     tray_mgr: Option<crate::tray::TrayManager>,
+
+    // Otomatik Güncelleme (GitHub Releases)
+    updater: crate::updater::UpdateManager,
 }
 
 impl SteamBoosterApp {
@@ -101,6 +104,15 @@ impl SteamBoosterApp {
 
         logger::log_info(&format!("SteamBooster started. {} accounts loaded.", config.accounts.len()));
 
+        // Eski sürüm yedeklerini (.old) temizle
+        crate::updater::cleanup_old_executable();
+
+        // Otomatik Güncelleme yöneticisini başlat
+        let updater = crate::updater::UpdateManager::new();
+        if config.settings.auto_check_updates {
+            crate::updater::check_for_updates(updater.state.clone(), config.settings.github_repo.clone());
+        }
+
         Self {
             config,
             active_tab: Tab::Accounts,
@@ -127,6 +139,7 @@ impl SteamBoosterApp {
             debug_filter_category: None,
             debug_search_query: String::new(),
             tray_mgr,
+            updater,
         }
     }
 
@@ -328,6 +341,24 @@ impl SteamBoosterApp {
                 .color(Color32::from_gray(150))
                 .size(12.5),
         );
+
+        let is_update_avail = matches!(*self.updater.state.lock().unwrap(), crate::updater::UpdateState::UpdateAvailable { .. });
+        if is_update_avail {
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(8.0);
+            let update_btn = egui::Button::new(
+                RichText::new("🚀 Güncelleme Var!")
+                    .color(Color32::WHITE)
+                    .strong()
+            )
+            .fill(Color32::from_rgb(35, 125, 220))
+            .min_size(Vec2::new(165.0, 32.0));
+
+            if ui.add(update_btn).clicked() {
+                self.updater.dismissed = false;
+            }
+        }
     }
 
     fn draw_accounts_tab(&mut self, ui: &mut Ui, s: &Strings) {
@@ -1499,6 +1530,80 @@ impl SteamBoosterApp {
                     }
                 }
             });
+
+            ui.add_space(16.0);
+            ui.separator();
+            ui.add_space(8.0);
+
+            // 13. Otomatik Güncelleme (GitHub Releases)
+            ui.label(RichText::new(s.sec_updater).font(FontId::proportional(16.0)).color(Color32::from_rgb(100, 180, 255)));
+            ui.add_space(4.0);
+
+            let mut auto_up = self.config.settings.auto_check_updates;
+            if ui.checkbox(&mut auto_up, s.opt_auto_check_updates).changed() {
+                self.config.settings.auto_check_updates = auto_up;
+                self.config.save();
+                logger::log_info(&format!("Auto check updates: {}", auto_up));
+            }
+
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.label("GitHub Reposu:");
+                let resp = ui.add(
+                    egui::TextEdit::singleline(&mut self.config.settings.github_repo)
+                        .desired_width(220.0)
+                        .hint_text("kullanici/repo"),
+                );
+                if resp.changed() {
+                    self.config.save();
+                }
+                if ui.button("Varsayılan").clicked() {
+                    self.config.settings.github_repo = "supreaxd/SteamHourBooster".to_string();
+                    self.config.save();
+                }
+            });
+
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                let cur_ver = env!("CARGO_PKG_VERSION");
+                ui.label(RichText::new(format!("Mevcut Sürüm: v{}", cur_ver)).color(Color32::from_gray(180)));
+
+                if ui.button(RichText::new(s.btn_check_updates).strong()).clicked() {
+                    crate::updater::check_for_updates(self.updater.state.clone(), self.config.settings.github_repo.clone());
+                    self.updater.dismissed = false;
+                }
+            });
+
+            let up_state = {
+                let lock = self.updater.state.lock().unwrap();
+                lock.clone()
+            };
+
+            ui.add_space(4.0);
+            match up_state {
+                crate::updater::UpdateState::Checking => {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label(s.update_checking);
+                    });
+                }
+                crate::updater::UpdateState::UpToDate { checked_at } => {
+                    ui.label(RichText::new(format!("{} (Son kontrol: {})", s.update_up_to_date, checked_at)).color(Color32::from_rgb(80, 200, 100)));
+                }
+                crate::updater::UpdateState::UpdateAvailable { version, release_title, .. } => {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(format!("🚀 Yeni sürüm: v{} ({})", version, release_title)).color(Color32::from_rgb(100, 200, 255)).strong());
+                        let btn = egui::Button::new(RichText::new(s.btn_update_now).color(Color32::WHITE)).fill(Color32::from_rgb(45, 140, 60));
+                        if ui.add(btn).clicked() {
+                            self.updater.dismissed = false;
+                        }
+                    });
+                }
+                crate::updater::UpdateState::Error(err) => {
+                    ui.label(RichText::new(format!("⚠️ {}", err)).color(Color32::from_rgb(220, 80, 80)));
+                }
+                _ => {}
+            }
         });
     }
 
@@ -1856,6 +1961,121 @@ impl SteamBoosterApp {
             self.show_qr_modal = false;
         }
     }
+
+    fn draw_update_modal(&mut self, ctx: &egui::Context, s: &Strings) {
+        let state = {
+            let lock = self.updater.state.lock().unwrap();
+            lock.clone()
+        };
+
+        match state {
+            crate::updater::UpdateState::UpdateAvailable {
+                version,
+                tag_name: _,
+                release_title,
+                release_notes,
+                published_at: _,
+                download_url,
+                asset_name: _,
+                asset_size,
+            } => {
+                if self.updater.dismissed {
+                    return;
+                }
+
+                let mut open = true;
+                egui::Window::new(RichText::new(s.update_available_title).color(Color32::from_rgb(100, 200, 255)).strong())
+                    .open(&mut open)
+                    .collapsible(false)
+                    .resizable(true)
+                    .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                    .default_size([480.0, 360.0])
+                    .show(ctx, |ui| {
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(format!("⚡ {}", release_title)).font(FontId::proportional(17.0)).strong());
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.label(RichText::new(format!("v{}", version)).color(Color32::from_rgb(80, 220, 120)).font(FontId::proportional(15.0)).strong());
+                            });
+                        });
+
+                        ui.add_space(4.0);
+                        let cur_ver = env!("CARGO_PKG_VERSION");
+                        ui.label(RichText::new(format!("Mevcut Sürüm: v{}  ➜  Yeni Sürüm: v{}", cur_ver, version)).color(Color32::from_gray(180)));
+                        ui.label(RichText::new(format!("📦 İndirme Boyutu: {:.1} MB", asset_size as f64 / 1_048_576.0)).color(Color32::from_gray(140)).size(12.0));
+
+                        ui.add_space(8.0);
+                        ui.separator();
+                        ui.label(RichText::new("📝 Sürüm Notları / Yenilikler:").strong());
+
+                        egui::ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
+                            ui.add_space(4.0);
+                            ui.label(RichText::new(&release_notes).size(12.0).color(Color32::from_gray(210)));
+                        });
+
+                        ui.add_space(10.0);
+                        ui.separator();
+                        ui.add_space(6.0);
+
+                        ui.horizontal(|ui| {
+                            let btn_update = egui::Button::new(RichText::new(s.btn_update_now).color(Color32::WHITE).strong())
+                                .fill(Color32::from_rgb(45, 140, 60))
+                                .min_size(Vec2::new(180.0, 34.0));
+
+                            if ui.add(btn_update).clicked() {
+                                crate::updater::start_download_and_update(download_url.clone(), asset_size, self.updater.state.clone());
+                            }
+
+                            if ui.button(RichText::new(s.btn_later).color(Color32::from_gray(180))).clicked() {
+                                self.updater.dismissed = true;
+                            }
+                        });
+                    });
+
+                if !open {
+                    self.updater.dismissed = true;
+                }
+            }
+
+            crate::updater::UpdateState::Downloading { progress, downloaded_bytes, total_bytes } => {
+                egui::Window::new("🚀 SteamBooster Güncelleniyor...")
+                    .collapsible(false)
+                    .resizable(false)
+                    .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                    .fixed_size([420.0, 180.0])
+                    .show(ctx, |ui| {
+                        ui.add_space(10.0);
+                        ui.label(RichText::new("Yeni sürüm GitHub üzerinden indiriliyor...").font(FontId::proportional(15.0)).strong());
+                        ui.add_space(14.0);
+
+                        ui.add(egui::ProgressBar::new(progress).show_percentage());
+                        ui.add_space(8.0);
+
+                        let mb_down = downloaded_bytes as f64 / 1_048_576.0;
+                        let mb_total = total_bytes as f64 / 1_048_576.0;
+                        ui.label(format!("{:.1} MB / {:.1} MB indirildi", mb_down, mb_total));
+                        ui.add_space(10.0);
+                        ui.label(RichText::new("İndirme bittiğinde uygulama otomatik olarak yerinde güncellenip açılacaktır.").color(Color32::from_gray(140)).size(11.5));
+                    });
+            }
+
+            crate::updater::UpdateState::ReadyToRestart => {
+                egui::Window::new("✅ Güncelleme Tamamlandı")
+                    .collapsible(false)
+                    .resizable(false)
+                    .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                    .fixed_size([380.0, 140.0])
+                    .show(ctx, |ui| {
+                        ui.add_space(10.0);
+                        ui.label(RichText::new("Yeni sürüm başarıyla yüklendi!").color(Color32::from_rgb(80, 220, 120)).font(FontId::proportional(16.0)).strong());
+                        ui.add_space(8.0);
+                        ui.label("Uygulama yeniden başlatılıyor, lütfen bekleyin...");
+                    });
+            }
+
+            _ => {}
+        }
+    }
 }
 
 impl eframe::App for SteamBoosterApp {
@@ -1941,6 +2161,7 @@ impl eframe::App for SteamBoosterApp {
         });
 
         self.draw_qr_modal(ctx, &s);
+        self.draw_update_modal(ctx, &s);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {

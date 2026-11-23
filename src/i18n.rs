@@ -182,6 +182,16 @@ pub struct Strings {
     pub title_template_hint: &'static str,
     pub sec_inventory: &'static str,
     pub opt_inventory_tracking: &'static str,
+
+    // Updater
+    pub sec_updater: &'static str,
+    pub opt_auto_check_updates: &'static str,
+    pub btn_check_updates: &'static str,
+    pub btn_update_now: &'static str,
+    pub btn_later: &'static str,
+    pub update_available_title: &'static str,
+    pub update_up_to_date: &'static str,
+    pub update_checking: &'static str,
 }
 
 pub fn get_strings(lang: Language) -> Strings {
@@ -348,6 +358,15 @@ pub fn get_strings(lang: Language) -> Strings {
             title_template_hint: "E.g. Playing {games} games | {hours}h boosted",
             sec_inventory: "🎒 Steam Inventory & Item Value Tracker",
             opt_inventory_tracking: "Track inventory changes and total value in background (CS2, TF2, Cards)",
+
+            sec_updater: "🔄 Automatic Updates (GitHub Releases)",
+            opt_auto_check_updates: "Automatically check GitHub repository for updates on application startup",
+            btn_check_updates: "🔄 Check for Updates Now",
+            btn_update_now: "🚀 Download & Update Now",
+            btn_later: "Remind Me Later",
+            update_available_title: "🚀 New Update Available!",
+            update_up_to_date: "✅ You are running the latest version.",
+            update_checking: "⏳ Checking GitHub repository...",
         },
         Language::Turkish => Strings {
             tab_accounts: "👤  Hesaplar",
@@ -511,6 +530,15 @@ pub fn get_strings(lang: Language) -> Strings {
             title_template_hint: "Örn: {games} oyun kasılıyor | {hours}h aktif",
             sec_inventory: "🎒 Steam Envanter ve Eşya Değer Takibi",
             opt_inventory_tracking: "Envanter değişimlerini ve toplam pazar değerini arka planda takip et (CS2, TF2, Kartlar)",
+
+            sec_updater: "🔄 Otomatik Güncelleme (GitHub Releases)",
+            opt_auto_check_updates: "Uygulama her açıldığında GitHub reposunu kontrol et ve yeni sürümü bildir",
+            btn_check_updates: "🔄 Güncellemeleri Şimdi Denetle",
+            btn_update_now: "🚀 Şimdi İndir ve Güncelle",
+            btn_later: "Daha Sonra Hatırlat",
+            update_available_title: "🚀 Yeni Güncelleme Mevcut!",
+            update_up_to_date: "✅ En güncel sürümü kullanıyorsunuz.",
+            update_checking: "⏳ GitHub reposu kontrol ediliyor...",
         },
         Language::Russian => Strings {
             tab_accounts: "👤  Аккаунты",
@@ -674,6 +702,15 @@ pub fn get_strings(lang: Language) -> Strings {
             title_template_hint: "Напр.: Бустинг {games} игр | {hours}h активно",
             sec_inventory: "🎒 Отслеживание инвентаря и стоимости предметов Steam",
             opt_inventory_tracking: "Отслеживать изменение инвентаря и общую стоимость в фоне (CS2, TF2, Карточки)",
+
+            sec_updater: "🔄 Автообновление (GitHub Releases)",
+            opt_auto_check_updates: "Проверять обновления на GitHub при запуске приложения",
+            btn_check_updates: "🔄 Проверить обновления сейчас",
+            btn_update_now: "🚀 Скачать и обновить сейчас",
+            btn_later: "Напомнить позже",
+            update_available_title: "🚀 Доступно новое обновление!",
+            update_up_to_date: "✅ У вас установлена последняя версия.",
+            update_checking: "⏳ Проверка репозитория GitHub...",
         },
     }
 }

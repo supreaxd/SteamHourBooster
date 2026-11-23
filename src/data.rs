@@ -262,6 +262,14 @@ pub struct AppSettings {
     pub web_app_port: u16,
     #[serde(default)]
     pub web_app_url: String,
+    #[serde(default = "default_true")]
+    pub auto_check_updates: bool,
+    #[serde(default = "default_github_repo")]
+    pub github_repo: String,
+}
+
+fn default_github_repo() -> String {
+    "supreaxd/SteamHourBooster".to_string()
 }
 
 fn default_web_app_port() -> u16 {
@@ -338,6 +346,8 @@ impl Default for AppSettings {
             dev_debug_mode: true,
             web_app_port: 8080,
             web_app_url: String::new(),
+            auto_check_updates: true,
+            github_repo: default_github_repo(),
         }
     }
 }

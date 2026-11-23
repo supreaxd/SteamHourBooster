@@ -13,6 +13,7 @@ mod qr_auth;
 mod steam;
 mod telegram;
 mod tray;
+mod updater;
 mod web_server;
 
 use eframe::egui;
