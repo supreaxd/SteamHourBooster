@@ -16,11 +16,19 @@ pub fn register_accounts_for_bot(accounts: Vec<Arc<Mutex<Account>>>) {
     }
 }
 
-#[allow(dead_code)]
 pub fn update_accounts_for_bot(accounts: &[Arc<Mutex<Account>>]) {
     let container = RUNTIME_ACCOUNTS_REF.get_or_init(|| Arc::new(Mutex::new(Vec::new())));
     if let Ok(mut lock) = container.lock() {
         *lock = accounts.to_vec();
+    }
+}
+
+pub fn get_runtime_accounts() -> Vec<Arc<Mutex<Account>>> {
+    let container = RUNTIME_ACCOUNTS_REF.get_or_init(|| Arc::new(Mutex::new(Vec::new())));
+    if let Ok(lock) = container.lock() {
+        lock.clone()
+    } else {
+        Vec::new()
     }
 }
 
@@ -100,8 +108,8 @@ pub fn init_telegram_bot() {
                                     }
 
                                     if !text.is_empty() {
-                                        let reply = handle_bot_command(text).await;
-                                        send_raw_telegram(&client, &token, &chat_id, &reply).await;
+                                        let (reply, web_app_opt) = handle_bot_command(text).await;
+                                        send_telegram_reply(&client, &token, &chat_id, &reply, web_app_opt.as_deref()).await;
                                     }
                                 }
                             }
@@ -119,110 +127,451 @@ pub fn init_telegram_bot() {
     });
 }
 
-async fn handle_bot_command(command: &str) -> String {
-    let parts: Vec<&str> = command.split_whitespace().collect();
-    if parts.is_empty() {
-        return String::new();
+// ==========================================
+// Remote Management API helpers
+// ==========================================
+
+pub fn start_all_remote() {
+    let accounts = get_runtime_accounts();
+    for arc in accounts {
+        let (_id, status) = {
+            let a = arc.lock().unwrap();
+            (a.id, a.status.clone())
+        };
+        if status == AccountStatus::Idle {
+            crate::steam::start_boost(arc.clone());
+        }
+    }
+}
+
+pub fn stop_all_remote() {
+    let accounts = get_runtime_accounts();
+    for arc in accounts {
+        let id = arc.lock().unwrap().id;
+        crate::steam::stop_boost(id, arc.clone());
+    }
+}
+
+pub fn restart_all_remote() {
+    let accounts = get_runtime_accounts();
+    for arc in accounts {
+        let id = arc.lock().unwrap().id;
+        crate::steam::restart_boost(id, arc.clone());
+    }
+}
+
+pub fn start_account_remote(target: &str) -> Result<String, String> {
+    let accounts = get_runtime_accounts();
+    let target_l = target.to_lowercase();
+    for arc in accounts {
+        let (id, user) = {
+            let a = arc.lock().unwrap();
+            (a.id, a.username.to_lowercase())
+        };
+        if user == target_l || id.to_string() == target_l {
+            crate::steam::start_boost(arc.clone());
+            return Ok(format!("▶️ `{}` başlatıldı.", target));
+        }
+    }
+    Err(format!("❌ `{}` hesabı bulunamadı.", target))
+}
+
+pub fn stop_account_remote(target: &str) -> Result<String, String> {
+    let accounts = get_runtime_accounts();
+    let target_l = target.to_lowercase();
+    for arc in accounts {
+        let (id, user) = {
+            let a = arc.lock().unwrap();
+            (a.id, a.username.to_lowercase())
+        };
+        if user == target_l || id.to_string() == target_l {
+            crate::steam::stop_boost(id, arc.clone());
+            return Ok(format!("⏹️ `{}` durduruldu.", target));
+        }
+    }
+    Err(format!("❌ `{}` hesabı bulunamadı.", target))
+}
+
+pub fn restart_account_remote(target: &str) -> Result<String, String> {
+    let accounts = get_runtime_accounts();
+    let target_l = target.to_lowercase();
+    for arc in accounts {
+        let (id, user) = {
+            let a = arc.lock().unwrap();
+            (a.id, a.username.to_lowercase())
+        };
+        if user == target_l || id.to_string() == target_l {
+            crate::steam::restart_boost(id, arc.clone());
+            return Ok(format!("🔄 `{}` yeniden başlatılıyor...", target));
+        }
+    }
+    Err(format!("❌ `{}` hesabı bulunamadı.", target))
+}
+
+pub fn add_account_remote(
+    user: &str,
+    pass: &str,
+    custom_title: Option<&str>,
+    shared_secret: Option<&str>,
+) -> Result<u64, String> {
+    if user.trim().is_empty() {
+        return Err("Kullanıcı adı boş olamaz".to_string());
     }
 
-    let cmd = parts[0].to_lowercase();
-    let accounts_arc = RUNTIME_ACCOUNTS_REF.get_or_init(|| Arc::new(Mutex::new(Vec::new()))).clone();
-    let lang = get_global_settings().language;
+    let mut config = crate::data::AppConfig::load();
+    let id = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
 
-    match cmd.as_str() {
-        "/help" | "/start" if parts.len() == 1 => {
-            match lang {
-                Language::English => {
-                    "🚀 *SteamBooster Telegram Control Center*\n\n\
-                    📋 *Commands:*\n\
-                    • `/status` - Show status and boosted hours of all accounts\n\
-                    • `/start_all` - Start boosting on all accounts\n\
-                    • `/stop_all` - Stop boosting on all accounts\n\
-                    • `/restart_all` - Restart boosting on all accounts\n\
-                    • `/start <name>` - Start a specific account\n\
-                    • `/stop <name>` - Stop a specific account\n\
-                    • `/restart <name>` - Restart a specific account\n\
-                    • `/lang [en|tr|ru]` - View or change language\n\
-                    • `/logs` - Show recent system logs".to_string()
-                }
-                Language::Turkish => {
-                    "🚀 *SteamBooster Telegram Kontrol Merkezi*\n\n\
-                    📋 *Komutlar:*\n\
-                    • `/status` - Tüm hesapların anlık durumunu ve kasılan saatleri gösterir\n\
-                    • `/start_all` - Tüm hesaplarda saat kasmayı başlatır\n\
-                    • `/stop_all` - Tüm hesaplarda saat kasmayı durdurur\n\
-                    • `/restart_all` - Tüm hesapları yeniden başlatır\n\
-                    • `/start <hesap_adı>` - Belirli bir hesabı başlatır\n\
-                    • `/stop <hesap_adı>` - Belirli bir hesabı durdurur\n\
-                    • `/restart <hesap_adı>` - Belirli bir hesabı yeniden başlatır\n\
-                    • `/lang [en|tr|ru]` - Dili görüntüle veya değiştir\n\
-                    • `/logs` - Son sistem loglarını listeler".to_string()
-                }
-                Language::Russian => {
-                    "🚀 *SteamBooster Центр управления Telegram*\n\n\
-                    📋 *Команды:*\n\
-                    • `/status` - Показать статус и накрученные часы всех аккаунтов\n\
-                    • `/start_all` - Запустить накрутку на всех аккаунтах\n\
-                    • `/stop_all` - Остановить накрутку на всех аккаунтах\n\
-                    • `/restart_all` - Перезапустить все аккаунты\n\
-                    • `/start <имя>` - Запустить конкретный аккаунт\n\
-                    • `/stop <имя>` - Остановить конкретный аккаунт\n\
-                    • `/restart <имя>` - Перезапустить конкретный аккаунт\n\
-                    • `/lang [en|tr|ru]` - Просмотреть или сменить язык\n\
-                    • `/logs` - Показать последние системные логи".to_string()
+    let mut new_acc = Account::new(id);
+    new_acc.username = user.trim().to_string();
+    new_acc.password = pass.trim().to_string();
+    if let Some(title) = custom_title {
+        if !title.trim().is_empty() {
+            new_acc.custom_title = title.trim().to_string();
+        }
+    }
+    if let Some(sec) = shared_secret {
+        if !sec.trim().is_empty() {
+            new_acc.shared_secret = Some(sec.trim().to_string());
+        }
+    }
+
+    // Default games
+    new_acc.games = vec![
+        crate::data::GameEntry::new(730, "Counter-Strike 2"),
+        crate::data::GameEntry::new(440, "Team Fortress 2"),
+        crate::data::GameEntry::new(570, "Dota 2"),
+    ];
+
+    config.accounts.push(new_acc.clone());
+    config.save();
+
+    let container = RUNTIME_ACCOUNTS_REF.get_or_init(|| Arc::new(Mutex::new(Vec::new())));
+    if let Ok(mut lock) = container.lock() {
+        lock.push(Arc::new(Mutex::new(new_acc)));
+    }
+
+    logger::log_success(&format!("👤 Remote added account: {} (ID: {})", user, id));
+    Ok(id)
+}
+
+pub fn delete_account_remote(target: &str) -> Result<String, String> {
+    let mut config = crate::data::AppConfig::load();
+    let target_l = target.to_lowercase();
+    let mut removed_id = None;
+    let mut removed_name = String::new();
+
+    config.accounts.retain(|a| {
+        if a.username.to_lowercase() == target_l || a.id.to_string() == target_l {
+            removed_id = Some(a.id);
+            removed_name = a.username.clone();
+            false
+        } else {
+            true
+        }
+    });
+
+    if let Some(id) = removed_id {
+        config.save();
+        let container = RUNTIME_ACCOUNTS_REF.get_or_init(|| Arc::new(Mutex::new(Vec::new())));
+        if let Ok(mut lock) = container.lock() {
+            for arc in lock.iter() {
+                if let Ok(a) = arc.lock() {
+                    if a.id == id {
+                        crate::steam::stop_boost(id, arc.clone());
+                    }
                 }
             }
-        }
-
-        "/lang" | "/language" => {
-            if parts.len() == 1 {
-                match lang {
-                    Language::English => {
-                        "🌐 *Current Language:* 🇬🇧 English\n\n\
-                        To change language, send:\n\
-                        • `/lang en` - 🇬🇧 English\n\
-                        • `/lang tr` - 🇹🇷 Türkçe\n\
-                        • `/lang ru` - 🇷🇺 Русский".to_string()
-                    }
-                    Language::Turkish => {
-                        "🌐 *Mevcut Dil:* 🇹🇷 Türkçe\n\n\
-                        Dili değiştirmek için gönderin:\n\
-                        • `/lang en` - 🇬🇧 English\n\
-                        • `/lang tr` - 🇹🇷 Türkçe\n\
-                        • `/lang ru` - 🇷🇺 Русский".to_string()
-                    }
-                    Language::Russian => {
-                        "🌐 *Текущий язык:* 🇷🇺 Русский\n\n\
-                        Чтобы изменить язык, отправьте:\n\
-                        • `/lang en` - 🇬🇧 English\n\
-                        • `/lang tr` - 🇹🇷 Türkçe\n\
-                        • `/lang ru` - 🇷🇺 Русский".to_string()
-                    }
+            lock.retain(|arc| {
+                if let Ok(a) = arc.lock() {
+                    a.id != id
+                } else {
+                    true
                 }
-            } else {
-                let code = parts[1].to_lowercase();
-                match code.as_str() {
-                    "en" | "eng" | "english" => {
-                        crate::data::update_language_and_save(Language::English);
-                        "✅ Language switched to 🇬🇧 *English*.".to_string()
-                    }
-                    "tr" | "turk" | "turkish" | "turkce" | "türkçe" => {
-                        crate::data::update_language_and_save(Language::Turkish);
-                        "✅ Dil başarıyla 🇹🇷 *Türkçe* olarak değiştirildi.".to_string()
-                    }
-                    "ru" | "rus" | "russian" | "русский" => {
-                        crate::data::update_language_and_save(Language::Russian);
-                        "✅ Язык успешно изменен на 🇷🇺 *Русский*.".to_string()
-                    }
-                    _ => {
-                        match lang {
-                            Language::English => "❌ Invalid language! Options: `en`, `tr`, `ru`.".to_string(),
-                            Language::Turkish => "❌ Geçersiz dil! Seçenekler: `en`, `tr`, `ru`.".to_string(),
-                            Language::Russian => "❌ Неверный язык! Варианты: `en`, `tr`, `ru`.".to_string(),
+            });
+        }
+        logger::log_info(&format!("🗑️ Remote deleted account: {} (ID: {})", removed_name, id));
+        Ok(format!("🗑️ `{}` hesabı başarıyla silindi.", removed_name))
+    } else {
+        Err(format!("❌ `{}` hesabı bulunamadı.", target))
+    }
+}
+
+pub fn add_game_remote(target: &str, app_id: u32, name: &str) -> Result<String, String> {
+    let target_l = target.to_lowercase();
+    let mut config = crate::data::AppConfig::load();
+    let mut found = false;
+
+    let game_name = if name.trim().is_empty() {
+        match crate::data::POPULAR_GAMES.iter().find(|(_, id)| *id == app_id) {
+            Some((p_name, _)) => p_name.to_string(),
+            None => format!("Steam App {}", app_id),
+        }
+    } else {
+        name.to_string()
+    };
+
+    for a in &mut config.accounts {
+        if a.username.to_lowercase() == target_l || a.id.to_string() == target_l {
+            if a.games.iter().any(|g| g.app_id == app_id) {
+                return Err(format!("⚠️ Oyun zaten listede: `{}` ({})", game_name, app_id));
+            }
+            a.games.push(crate::data::GameEntry::new(app_id, &game_name));
+            found = true;
+            break;
+        }
+    }
+
+    if found {
+        config.save();
+        let container = RUNTIME_ACCOUNTS_REF.get_or_init(|| Arc::new(Mutex::new(Vec::new())));
+        if let Ok(lock) = container.lock() {
+            for arc in lock.iter() {
+                if let Ok(mut a) = arc.lock() {
+                    if a.username.to_lowercase() == target_l || a.id.to_string() == target_l {
+                        if !a.games.iter().any(|g| g.app_id == app_id) {
+                            a.games.push(crate::data::GameEntry::new(app_id, &game_name));
                         }
                     }
                 }
             }
+        }
+        Ok(format!("🎮 `{}` hesaba eklendi: `{}` ({})", target, game_name, app_id))
+    } else {
+        Err(format!("❌ `{}` hesabı bulunamadı.", target))
+    }
+}
+
+pub fn remove_game_remote(target: &str, app_id: u32) -> Result<String, String> {
+    let target_l = target.to_lowercase();
+    let mut config = crate::data::AppConfig::load();
+    let mut found = false;
+    let mut removed_title = String::new();
+
+    for a in &mut config.accounts {
+        if a.username.to_lowercase() == target_l || a.id.to_string() == target_l {
+            if let Some(pos) = a.games.iter().position(|g| g.app_id == app_id) {
+                removed_title = a.games[pos].name.clone();
+                a.games.remove(pos);
+                found = true;
+            }
+            break;
+        }
+    }
+
+    if found {
+        config.save();
+        let container = RUNTIME_ACCOUNTS_REF.get_or_init(|| Arc::new(Mutex::new(Vec::new())));
+        if let Ok(lock) = container.lock() {
+            for arc in lock.iter() {
+                if let Ok(mut a) = arc.lock() {
+                    if a.username.to_lowercase() == target_l || a.id.to_string() == target_l {
+                        a.games.retain(|g| g.app_id != app_id);
+                    }
+                }
+            }
+        }
+        Ok(format!("🗑️ `{}` hesaptan çıkarıldı: `{}` ({})", target, removed_title, app_id))
+    } else {
+        Err(format!("❌ Oyun veya hesap bulunamadı."))
+    }
+}
+
+pub fn submit_guard_remote(target: &str, code: &str) -> Result<String, String> {
+    let target_l = target.to_lowercase();
+    let container = RUNTIME_ACCOUNTS_REF.get_or_init(|| Arc::new(Mutex::new(Vec::new())));
+    if let Ok(lock) = container.lock() {
+        for arc in lock.iter() {
+            let (id, user) = {
+                let a = arc.lock().unwrap();
+                (a.id, a.username.to_lowercase())
+            };
+            if user == target_l || id.to_string() == target_l {
+                crate::steam::submit_guard_code(id, code);
+                return Ok(format!("🛡️ `{}` hesabı için Steam Guard kodu iletildi.", target));
+            }
+        }
+    }
+    Err(format!("❌ `{}` hesabı bulunamadı.", target))
+}
+
+pub async fn search_steam_games(query: &str) -> Vec<Value> {
+    let q = query.trim().to_lowercase();
+    let mut results: Vec<Value> = Vec::new();
+    let mut seen_ids = std::collections::HashSet::new();
+
+    // 1. Check local popular games
+    for (name, id) in crate::data::POPULAR_GAMES {
+        if name.to_lowercase().contains(&q) {
+            seen_ids.insert(*id);
+            results.push(serde_json::json!({
+                "app_id": id,
+                "name": name,
+                "tiny_image": format!("https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{}/capsule_231x87.jpg", id)
+            }));
+        }
+    }
+
+    // 2. Query Steam Store Search API
+    if !query.trim().is_empty() {
+        let encoded = crate::data::urlencoding_encode(query);
+        let url = format!("https://store.steampowered.com/api/storesearch/?term={}&l=turkish&cc=TR", encoded);
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .unwrap_or_default();
+
+        if let Ok(resp) = client.get(&url).send().await {
+            if let Ok(json) = resp.json::<Value>().await {
+                if let Some(items) = json.get("items").and_then(|i| i.as_array()) {
+                    for item in items.iter().take(12) {
+                        if let (Some(id_u64), Some(name_str)) = (
+                            item.get("id").and_then(|v| v.as_u64()),
+                            item.get("name").and_then(|v| v.as_str()),
+                        ) {
+                            let app_id = id_u64 as u32;
+                            if !seen_ids.contains(&app_id) {
+                                seen_ids.insert(app_id);
+                                let tiny_img = item.get("tiny_image")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                let img = if tiny_img.is_empty() {
+                                    format!("https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{}/capsule_231x87.jpg", app_id)
+                                } else {
+                                    tiny_img.to_string()
+                                };
+
+                                results.push(serde_json::json!({
+                                    "app_id": app_id,
+                                    "name": name_str,
+                                    "tiny_image": img
+                                }));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    results
+}
+
+// ==========================================
+// Bot Command Dispatcher
+// ==========================================
+
+async fn handle_bot_command(command: &str) -> (String, Option<String>) {
+    let parts: Vec<&str> = command.split_whitespace().collect();
+    if parts.is_empty() {
+        return (String::new(), None);
+    }
+
+    let cmd = parts[0].to_lowercase();
+    let accounts_arc = RUNTIME_ACCOUNTS_REF.get_or_init(|| Arc::new(Mutex::new(Vec::new()))).clone();
+    let settings = get_global_settings();
+    let lang = settings.language;
+    let bound_port = crate::web_server::get_bound_port();
+
+    let web_app_url = if !settings.web_app_url.is_empty() {
+        settings.web_app_url.clone()
+    } else {
+        format!("http://127.0.0.1:{}", bound_port)
+    };
+
+    match cmd.as_str() {
+        "/start" if parts.len() > 1 => {
+            match start_account_remote(parts[1]) {
+                Ok(msg) => (msg, None),
+                Err(e) => (e, None),
+            }
+        }
+
+        "/start" | "/help" => {
+            let msg = match lang {
+                Language::English => format!(
+                    "🚀 *SteamBooster Telegram Controller*\n\n\
+                    📱 *Telegram Mini App:*\n\
+                    • `/app` — Open Telegram Mini App controller\n\
+                    • `/setwebapp <url>` — Set Mini App HTTPS URL (ngrok/tunnel)\n\n\
+                    📊 *Status & Controls:*\n\
+                    • `/status` — View all accounts status\n\
+                    • `/start_all` — Start boosting all accounts\n\
+                    • `/stop_all` — Stop boosting all accounts\n\
+                    • `/restart_all` — Restart all accounts\n\
+                    • `/start <user>` — Start specific account\n\
+                    • `/stop <user>` — Stop specific account\n\
+                    • `/restart <user>` — Restart specific account\n\n\
+                    👤 *Account Management:*\n\
+                    • `/addaccount <user> <pass>` — Add Steam account\n\
+                    • `/delaccount <user>` — Remove Steam account\n\
+                    • `/guard <user> <code>` — Submit Steam Guard code\n\n\
+                    🎮 *Games & Cards:*\n\
+                    • `/games <user>` — View games of an account\n\
+                    • `/search <name>` — Live search games on Steam\n\
+                    • `/addgame <user> <appid>` — Add game to account\n\
+                    • `/removegame <user> <appid>` — Remove game from account\n\
+                    • `/cards` — View recent card drops\n\n\
+                    🌐 *Web App URL:* `{}`",
+                    web_app_url
+                ),
+                Language::Turkish => format!(
+                    "🚀 *SteamBooster Telegram Kontrolcüsü*\n\n\
+                    📱 *Telegram Mini App:*\n\
+                    • `/app` — Telegram Mini App arayüzünü aç\n\
+                    • `/setwebapp <url>` — Mini App HTTPS URL'sini ayarla (ngrok vs.)\n\n\
+                    📊 *Durum & Boost:*\n\
+                    • `/status` — Tüm hesapların durumunu listele\n\
+                    • `/start_all` — Tüm hesapları başlat\n\
+                    • `/stop_all` — Tüm hesapları durdur\n\
+                    • `/restart_all` — Tüm hesapları yeniden başlat\n\
+                    • `/start <hesap>` — Belirli bir hesabı başlat\n\
+                    • `/stop <hesap>` — Belirli bir hesabı durdur\n\
+                    • `/restart <hesap>` — Belirli bir hesabı yeniden başlat\n\n\
+                    👤 *Hesap Yönetimi:*\n\
+                    • `/addaccount <kullanıcı> <şifre>` — Yeni Steam hesabı ekle\n\
+                    • `/delaccount <hesap>` — Hesabı sil\n\
+                    • `/guard <hesap> <kod>` — Steam Guard kodunu ilet\n\n\
+                    🎮 *Oyun & Kart:*\n\
+                    • `/games <hesap>` — Hesaptaki oyunları listele\n\
+                    • `/search <oyun>` — Steam Mağazasında anlık oyun ara\n\
+                    • `/addgame <hesap> <appid>` — Hesaba oyun ekle\n\
+                    • `/removegame <hesap> <appid>` — Hesaptan oyun çıkar\n\
+                    • `/cards` — Düşen son koleksiyon kartlarını gör\n\n\
+                    🌐 *Web App URL:* `{}`",
+                    web_app_url
+                ),
+                Language::Russian => format!(
+                    "🚀 *SteamBooster Telegram Управление*\n\n\
+                    • `/app` — Открыть Mini App\n\
+                    • `/status` — Статус аккаунтов\n\
+                    • `/start_all` / `/stop_all` — Запуск / Стоп всех\n\
+                    • `/search <game>` — Поиск игр в Steam\n\
+                    • `/cards` — Выпавшие карточки\n\n\
+                    🌐 *URL:* `{}`",
+                    web_app_url
+                ),
+            };
+            (msg, Some(web_app_url))
+        }
+
+        "/app" => {
+            let msg = format!(
+                "🚀 *SteamBooster Mini App*\n\n\
+                Aşağıdaki butona tıklayarak PC uygulamanızı doğrudan Telegram içinden kontrol edebilirsiniz:\n\n\
+                🔗 *URL:* `{}`\n\
+                💡 *İpucu:* Eğer mobilde açmak istiyorsanız ve HTTPS gerekiyorsa, ngrok veya cloudflare tunnel URL'nizi `/setwebapp <url>` komutuyla kaydedebilirsiniz.",
+                web_app_url
+            );
+            (msg, Some(web_app_url))
+        }
+
+        "/setwebapp" if parts.len() > 1 => {
+            let url = parts[1].trim();
+            crate::data::save_web_app_url(url);
+            (format!("✅ Telegram Mini App URL'si güncellendi:\n`{}`", url), Some(url.to_string()))
         }
 
         "/status" => {
@@ -232,224 +581,212 @@ async fn handle_bot_command(command: &str) -> String {
             };
 
             if accounts.is_empty() {
-                return match lang {
-                    Language::English => "ℹ️ No registered accounts found.".to_string(),
-                    Language::Turkish => "ℹ️ Kayıtlı hesap bulunamadı.".to_string(),
-                    Language::Russian => "ℹ️ Зарегистрированных аккаунтов не найдено.".to_string(),
-                };
+                return (
+                    match lang {
+                        Language::English => "⚠️ No accounts added yet.".to_string(),
+                        Language::Turkish => "⚠️ Henüz eklenmiş hesap yok.".to_string(),
+                        Language::Russian => "⚠️ Нет добавленных аккаунтов.".to_string(),
+                    },
+                    None,
+                );
             }
 
-            let mut out = match lang {
-                Language::English => format!("📊 *SteamBooster Accounts Status ({} Accounts):*\n\n", accounts.len()),
-                Language::Turkish => format!("📊 *SteamBooster Hesap Durumları ({} Hesap):*\n\n", accounts.len()),
-                Language::Russian => format!("📊 *Статус аккаунтов SteamBooster ({} аккаунтов):*\n\n", accounts.len()),
-            };
-
-            for arc in accounts {
+            let mut out = String::from("📋 *SteamBooster Hesap Durumları:*\n\n");
+            for (idx, arc) in accounts.iter().enumerate() {
                 let a = arc.lock().unwrap();
-                let status_icon = match (&a.status, lang) {
-                    (AccountStatus::Boosting, Language::English) => "🟢 Boosting".to_string(),
-                    (AccountStatus::Boosting, Language::Turkish) => "🟢 Kasıyor".to_string(),
-                    (AccountStatus::Boosting, Language::Russian) => "🟢 Бустит".to_string(),
-
-                    (AccountStatus::Connecting, Language::English) => "🟡 Connecting...".to_string(),
-                    (AccountStatus::Connecting, Language::Turkish) => "🟡 Bağlanıyor".to_string(),
-                    (AccountStatus::Connecting, Language::Russian) => "🟡 Подключение...".to_string(),
-
-                    (AccountStatus::AwaitingSteamGuard { .. }, Language::English) => "🛡️ Guard Needed".to_string(),
-                    (AccountStatus::AwaitingSteamGuard { .. }, Language::Turkish) => "🛡️ Guard Bekleniyor".to_string(),
-                    (AccountStatus::AwaitingSteamGuard { .. }, Language::Russian) => "🛡️ Ожидание Guard".to_string(),
-
-                    (AccountStatus::PausedForGame { .. }, Language::English) => "⏸️ In-Game (Paused)".to_string(),
-                    (AccountStatus::PausedForGame { .. }, Language::Turkish) => "⏸️ Oyunda (Duraklatıldı)".to_string(),
-                    (AccountStatus::PausedForGame { .. }, Language::Russian) => "⏸️ В игре (Пауза)".to_string(),
-
-                    (AccountStatus::Reconnecting { .. }, Language::English) => "🔄 Reconnecting...".to_string(),
-                    (AccountStatus::Reconnecting { .. }, Language::Turkish) => "🔄 Yeniden Bağlanıyor".to_string(),
-                    (AccountStatus::Reconnecting { .. }, Language::Russian) => "🔄 Переподключение...".to_string(),
-
-                    (AccountStatus::Error(e), Language::English) => format!("🔴 Error: {}", e),
-                    (AccountStatus::Error(e), Language::Turkish) => format!("🔴 Hata: {}", e),
-                    (AccountStatus::Error(e), Language::Russian) => format!("🔴 Ошибка: {}", e),
-
-                    (AccountStatus::Idle, Language::English) => "⚪ Stopped".to_string(),
-                    (AccountStatus::Idle, Language::Turkish) => "⚪ Durduruldu".to_string(),
-                    (AccountStatus::Idle, Language::Russian) => "⚪ Остановлено".to_string(),
+                let status_icon = match &a.status {
+                    AccountStatus::Boosting => "🟢",
+                    AccountStatus::Connecting => "🟡",
+                    AccountStatus::AwaitingSteamGuard { .. } => "🛡️",
+                    AccountStatus::PausedForGame { .. } => "⏸️",
+                    AccountStatus::Reconnecting { .. } => "🔄",
+                    AccountStatus::Error(_) => "🔴",
+                    AccountStatus::Idle => "⚪",
+                };
+                let status_text = match &a.status {
+                    AccountStatus::Boosting => "Kasılıyor",
+                    AccountStatus::Connecting => "Bağlanıyor...",
+                    AccountStatus::AwaitingSteamGuard { hint } => &format!("Guard Bekleniyor ({})", hint),
+                    AccountStatus::PausedForGame { app_name, .. } => &format!("Oyundasınız: {}", app_name),
+                    AccountStatus::Reconnecting { attempt, .. } => &format!("Yeniden bağlanıyor (Deneme {})", attempt),
+                    AccountStatus::Error(e) => &format!("Hata: {}", e),
+                    AccountStatus::Idle => "Durduruldu",
                 };
 
-                let line = match lang {
-                    Language::English => format!(
-                        "👤 *{}* | {}\n🎮 {} games | ⏱ {:.1} hrs\n🏷️ Title: {}\n\n",
-                        a.username, status_icon, a.games.len(), a.hours_boosted, a.custom_title
-                    ),
-                    Language::Turkish => format!(
-                        "👤 *{}* | {}\n🎮 {} oyun | ⏱ {:.1} saat\n🏷️ Başlık: {}\n\n",
-                        a.username, status_icon, a.games.len(), a.hours_boosted, a.custom_title
-                    ),
-                    Language::Russian => format!(
-                        "👤 *{}* | {}\n🎮 {} игр | ⏱ {:.1} ч.\n🏷️ Заголовок: {}\n\n",
-                        a.username, status_icon, a.games.len(), a.hours_boosted, a.custom_title
-                    ),
-                };
-                out.push_str(&line);
+                out.push_str(&format!(
+                    "{}. {} *{}* (ID: `{}`)\n   └ Durum: {} | Saat: `{:.1}h` | Oyun: `{}`\n",
+                    idx + 1,
+                    status_icon,
+                    a.username,
+                    a.id,
+                    status_text,
+                    a.hours_boosted,
+                    a.games.len()
+                ));
             }
-            out
+            (out, None)
         }
 
-        "/start_all" | "/startall" => {
-            let accounts = {
-                let lock = accounts_arc.lock().unwrap();
-                lock.clone()
-            };
-            for arc in &accounts {
-                crate::steam::start_boost(arc.clone());
-            }
-            match lang {
-                Language::English => format!("✅ Hour boosting started for {} accounts!", accounts.len()),
-                Language::Turkish => format!("✅ {} hesap için saat kasma başlatıldı!", accounts.len()),
-                Language::Russian => format!("✅ Накрутка запущена для {} аккаунтов!", accounts.len()),
-            }
+        "/start_all" => {
+            start_all_remote();
+            (
+                match lang {
+                    Language::English => "▶️ Boost started for all accounts.".to_string(),
+                    Language::Turkish => "▶️ Tüm hesaplar için boost başlatıldı.".to_string(),
+                    Language::Russian => "▶️ Буст запущен для всех аккаунтов.".to_string(),
+                },
+                None,
+            )
         }
 
-        "/stop_all" | "/stopall" => {
-            let accounts = {
-                let lock = accounts_arc.lock().unwrap();
-                lock.clone()
-            };
-            for arc in &accounts {
-                let id = arc.lock().unwrap().id;
-                crate::steam::stop_boost(id, arc.clone());
-            }
-            match lang {
-                Language::English => format!("⏹️ Stopped boosting for {} accounts.", accounts.len()),
-                Language::Turkish => format!("⏹️ {} hesap durduruldu.", accounts.len()),
-                Language::Russian => format!("⏹️ Накрутка остановлена для {} аккаунтов.", accounts.len()),
-            }
+        "/stop_all" => {
+            stop_all_remote();
+            (
+                match lang {
+                    Language::English => "⏹️ Boost stopped for all accounts.".to_string(),
+                    Language::Turkish => "⏹️ Tüm hesaplar durduruldu.".to_string(),
+                    Language::Russian => "⏹️ Все аккаунты остановлены.".to_string(),
+                },
+                None,
+            )
         }
 
-        "/restart_all" | "/restartall" => {
-            let accounts = {
-                let lock = accounts_arc.lock().unwrap();
-                lock.clone()
-            };
-            for arc in &accounts {
-                let id = arc.lock().unwrap().id;
-                crate::steam::restart_boost(id, arc.clone());
-            }
-            match lang {
-                Language::English => format!("🔄 Restarting {} accounts...", accounts.len()),
-                Language::Turkish => format!("🔄 {} hesap yeniden başlatılıyor...", accounts.len()),
-                Language::Russian => format!("🔄 Перезапуск {} аккаунтов...", accounts.len()),
-            }
-        }
-
-        "/logs" => {
-            let logs = logger::get_logs();
-            let recent: Vec<_> = logs.iter().rev().take(12).collect();
-            if recent.is_empty() {
-                return match lang {
-                    Language::English => "📜 No log entries found.".to_string(),
-                    Language::Turkish => "📜 Log kaydı bulunmuyor.".to_string(),
-                    Language::Russian => "📜 Записей в логах нет.".to_string(),
-                };
-            }
-            let mut out = match lang {
-                Language::English => "📜 *Recent System Logs:*\n".to_string(),
-                Language::Turkish => "📜 *Son Sistem Logları:*\n".to_string(),
-                Language::Russian => "📜 *Последние системные логи:*\n".to_string(),
-            };
-            for l in recent.iter().rev() {
-                out.push_str(&format!("`[{}]` {}\n", l.timestamp, l.message));
-            }
-            out
-        }
-
-        "/start" if parts.len() > 1 => {
-            let target = parts[1].to_lowercase();
-            let accounts = {
-                let lock = accounts_arc.lock().unwrap();
-                lock.clone()
-            };
-            for arc in &accounts {
-                let (id, user) = {
-                    let a = arc.lock().unwrap();
-                    (a.id, a.username.to_lowercase())
-                };
-                if user == target || id.to_string() == target {
-                    crate::steam::start_boost(arc.clone());
-                    return match lang {
-                        Language::English => format!("✅ Account `{}` started.", target),
-                        Language::Turkish => format!("✅ `{}` hesabı başlatıldı.", target),
-                        Language::Russian => format!("✅ Аккаунт `{}` запущен.", target),
-                    };
-                }
-            }
-            match lang {
-                Language::English => format!("❌ Account `{}` not found.", target),
-                Language::Turkish => format!("❌ `{}` isimli hesap bulunamadı.", target),
-                Language::Russian => format!("❌ Аккаунт `{}` не найден.", target),
-            }
+        "/restart_all" => {
+            restart_all_remote();
+            (
+                match lang {
+                    Language::English => "🔄 Restarting boost for all accounts...".to_string(),
+                    Language::Turkish => "🔄 Tüm hesaplar yeniden başlatılıyor...".to_string(),
+                    Language::Russian => "🔄 Перезапуск всех аккаунтов...".to_string(),
+                },
+                None,
+            )
         }
 
         "/stop" if parts.len() > 1 => {
-            let target = parts[1].to_lowercase();
-            let accounts = {
-                let lock = accounts_arc.lock().unwrap();
-                lock.clone()
-            };
-            for arc in &accounts {
-                let (id, user) = {
-                    let a = arc.lock().unwrap();
-                    (a.id, a.username.to_lowercase())
-                };
-                if user == target || id.to_string() == target {
-                    crate::steam::stop_boost(id, arc.clone());
-                    return match lang {
-                        Language::English => format!("⏹️ Account `{}` stopped.", target),
-                        Language::Turkish => format!("⏹️ `{}` hesabı durduruldu.", target),
-                        Language::Russian => format!("⏹️ Аккаунт `{}` остановлен.", target),
-                    };
-                }
-            }
-            match lang {
-                Language::English => format!("❌ Account `{}` not found.", target),
-                Language::Turkish => format!("❌ `{}` isimli hesap bulunamadı.", target),
-                Language::Russian => format!("❌ Аккаунт `{}` не найден.", target),
+            match stop_account_remote(parts[1]) {
+                Ok(msg) => (msg, None),
+                Err(e) => (e, None),
             }
         }
 
         "/restart" if parts.len() > 1 => {
-            let target = parts[1].to_lowercase();
-            let accounts = {
-                let lock = accounts_arc.lock().unwrap();
-                lock.clone()
-            };
-            for arc in &accounts {
-                let (id, user) = {
-                    let a = arc.lock().unwrap();
-                    (a.id, a.username.to_lowercase())
-                };
-                if user == target || id.to_string() == target {
-                    crate::steam::restart_boost(id, arc.clone());
-                    return match lang {
-                        Language::English => format!("🔄 Account `{}` restarting...", target),
-                        Language::Turkish => format!("🔄 `{}` hesabı yeniden başlatılıyor...", target),
-                        Language::Russian => format!("🔄 Перезапуск аккаунта `{}`...", target),
-                    };
-                }
-            }
-            match lang {
-                Language::English => format!("❌ Account `{}` not found.", target),
-                Language::Turkish => format!("❌ `{}` isimli hesap bulunamadı.", target),
-                Language::Russian => format!("❌ Аккаунт `{}` не найден.", target),
+            match restart_account_remote(parts[1]) {
+                Ok(msg) => (msg, None),
+                Err(e) => (e, None),
             }
         }
 
-        _ => match lang {
-            Language::English => "❓ Unknown command. Type `/help` for available commands.".to_string(),
-            Language::Turkish => "❓ Bilinmeyen komut. Komut listesi için `/help` yazabilirsiniz.".to_string(),
-            Language::Russian => "❓ Неизвестная команда. Введите `/help` для списка команд.".to_string(),
-        },
+        "/addaccount" if parts.len() >= 3 => {
+            let user = parts[1];
+            let pass = parts[2];
+            match add_account_remote(user, pass, None, None) {
+                Ok(id) => (
+                    format!("✅ `{}` hesabı başarıyla eklendi! (ID: `{}`)\nBaşlatmak için: `/start {}`", user, id, user),
+                    None,
+                ),
+                Err(e) => (format!("❌ Hesap eklenemedi: {}", e), None),
+            }
+        }
+
+        "/delaccount" if parts.len() > 1 => {
+            match delete_account_remote(parts[1]) {
+                Ok(msg) => (msg, None),
+                Err(e) => (e, None),
+            }
+        }
+
+        "/games" if parts.len() > 1 => {
+            let target = parts[1].to_lowercase();
+            let accounts = get_runtime_accounts();
+            for arc in accounts {
+                let a = arc.lock().unwrap();
+                if a.username.to_lowercase() == target || a.id.to_string() == target {
+                    if a.games.is_empty() {
+                        return (format!("🎮 *{}* hesabında kayıtlı oyun yok.\nOyun eklemek için: `/addgame {} <appid>`", a.username, a.username), None);
+                    }
+                    let mut list = format!("🎮 *{}* Oyun Listesi (Toplam: {}):\n\n", a.username, a.games.len());
+                    for (i, g) in a.games.iter().enumerate() {
+                        list.push_str(&format!("{}. *{}* (AppID: `{}`)\n", i + 1, g.name, g.app_id));
+                    }
+                    return (list, None);
+                }
+            }
+            (format!("❌ `{}` hesabı bulunamadı.", parts[1]), None)
+        }
+
+        "/search" if parts.len() > 1 => {
+            let query = parts[1..].join(" ");
+            let results = search_steam_games(&query).await;
+            if results.is_empty() {
+                return (format!("🔍 `{}` için Steam'de sonuç bulunamadı.", query), None);
+            }
+            let mut reply = format!("🔍 *\"{}\"* Arama Sonuçları:\n\n", query);
+            for item in results.iter().take(8) {
+                let id = item.get("app_id").and_then(|v| v.as_u64()).unwrap_or(0);
+                let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
+                reply.push_str(&format!("• *{}* — AppID: `{}`\n  └ Ekleme: `/addgame <hesap> {}`\n", name, id, id));
+            }
+            (reply, None)
+        }
+
+        "/addgame" if parts.len() >= 3 => {
+            let target = parts[1];
+            if let Ok(app_id) = parts[2].parse::<u32>() {
+                match add_game_remote(target, app_id, "") {
+                    Ok(msg) => (msg, None),
+                    Err(e) => (e, None),
+                }
+            } else {
+                ("❌ Geçersiz AppID. Örnek: `/addgame user1 730`".to_string(), None)
+            }
+        }
+
+        "/removegame" if parts.len() >= 3 => {
+            let target = parts[1];
+            if let Ok(app_id) = parts[2].parse::<u32>() {
+                match remove_game_remote(target, app_id) {
+                    Ok(msg) => (msg, None),
+                    Err(e) => (e, None),
+                }
+            } else {
+                ("❌ Geçersiz AppID. Örnek: `/removegame user1 730`".to_string(), None)
+            }
+        }
+
+        "/guard" if parts.len() >= 3 => {
+            let target = parts[1];
+            let code = parts[2];
+            match submit_guard_remote(target, code) {
+                Ok(msg) => (msg, None),
+                Err(e) => (e, None),
+            }
+        }
+
+        "/cards" => {
+            let cards = crate::inventory::get_recent_card_drops();
+            if cards.is_empty() {
+                return ("🃏 Henüz düşen koleksiyon kartı kaydedilmedi.".to_string(), None);
+            }
+            let mut msg = format!("🃏 *Son Düşen Koleksiyon Kartları ({})*:\n\n", cards.len());
+            for c in cards.iter().rev().take(10) {
+                let price_str = if c.market_price.is_empty() { "-" } else { &c.market_price };
+                msg.push_str(&format!(
+                    "• *{}* — `{}` hesabı\n  └ Kart: *{}* (Fiyat: `{}`)\n",
+                    c.game_name, c.username, c.card_name, price_str
+                ));
+            }
+            (msg, None)
+        }
+
+        _ => {
+            let msg = match lang {
+                Language::English => "❓ Unknown command. Type `/help` for available commands.".to_string(),
+                Language::Turkish => "❓ Bilinmeyen komut. Komut listesi için `/help` yazabilirsiniz.".to_string(),
+                Language::Russian => "❓ Неизвестная команда. Введите `/help` для списка команд.".to_string(),
+            };
+            (msg, None)
+        }
     }
 }
 
@@ -470,11 +807,49 @@ pub fn send_telegram_alert(message: &str) {
 }
 
 async fn send_raw_telegram(client: &reqwest::Client, token: &str, chat_id: &str, text: &str) {
+    send_telegram_reply(client, token, chat_id, text, None).await;
+}
+
+async fn send_telegram_reply(
+    client: &reqwest::Client,
+    token: &str,
+    chat_id: &str,
+    text: &str,
+    web_app_url: Option<&str>,
+) {
     let url = format!("https://api.telegram.org/bot{}/sendMessage", token);
-    let params = serde_json::json!({
+
+    let mut body = serde_json::json!({
         "chat_id": chat_id,
         "text": text,
         "parse_mode": "Markdown"
     });
-    let _ = client.post(&url).json(&params).send().await;
+
+    if let Some(app_url) = web_app_url {
+        if app_url.starts_with("https://") {
+            body["reply_markup"] = serde_json::json!({
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": "🚀 Mini App'i Aç",
+                            "web_app": { "url": app_url }
+                        }
+                    ]
+                ]
+            });
+        } else {
+            body["reply_markup"] = serde_json::json!({
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": "🌐 Web Panelini Aç",
+                            "url": app_url
+                        }
+                    ]
+                ]
+            });
+        }
+    }
+
+    let _ = client.post(&url).json(&body).send().await;
 }

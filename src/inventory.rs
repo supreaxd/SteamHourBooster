@@ -15,6 +15,32 @@ pub struct AccountInventoryInfo {
     pub last_checked: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CardDropEvent {
+    pub timestamp: String,
+    pub username: String,
+    pub game_name: String,
+    pub card_name: String,
+    pub market_price: String,
+}
+
+static CARD_DROPS: OnceLock<Mutex<Vec<CardDropEvent>>> = OnceLock::new();
+
+pub fn record_card_drop(event: CardDropEvent) {
+    let drops = CARD_DROPS.get_or_init(|| Mutex::new(Vec::new()));
+    if let Ok(mut lock) = drops.lock() {
+        lock.push(event);
+        if lock.len() > 100 {
+            lock.remove(0);
+        }
+    }
+}
+
+pub fn get_recent_card_drops() -> Vec<CardDropEvent> {
+    let drops = CARD_DROPS.get_or_init(|| Mutex::new(Vec::new()));
+    drops.lock().map(|l| l.clone()).unwrap_or_default()
+}
+
 static INVENTORY_CACHE: OnceLock<Mutex<HashMap<u64, AccountInventoryInfo>>> = OnceLock::new();
 
 fn get_cache() -> &'static Mutex<HashMap<u64, AccountInventoryInfo>> {

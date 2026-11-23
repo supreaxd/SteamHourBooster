@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::sync::{Mutex, OnceLock};
 use chrono::Local;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize)]
 pub enum LogLevel {
     Info,
     Success,
@@ -22,7 +22,7 @@ impl LogLevel {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub struct LogEntry {
     pub timestamp: String,
     pub level: LogLevel,

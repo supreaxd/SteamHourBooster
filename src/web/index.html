@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>⚡ SteamBooster Mini App</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --bg: #12141c;
+      --card-bg: #1c2028;
+      --card-hover: #242934;
+      --border: #283040;
+      --text: #f0f2f5;
+      --text-muted: #8e95a5;
+      --accent-blue: #64b4ff;
+      --accent-cyan: #00c8ff;
+      --accent-green: #50c878;
+      --accent-red: #dc5050;
+      --accent-orange: #ffa028;
+      --accent-purple: #b4a0dc;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+      padding-bottom: 75px;
+    }
+    /* Header */
+    header {
+      background: #171a22;
+      border-bottom: 1px solid var(--border);
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(8px);
+    }
+    .logo-area {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .logo-area h1 {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--accent-cyan);
+      letter-spacing: 0.5px;
+    }
+    .status-pill {
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 12px;
+      background: rgba(80, 200, 120, 0.15);
+      color: var(--accent-green);
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .pulse-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 8px currentColor;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+    /* Navigation Bar */
+    nav.bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #161821;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-around;
+      padding: 8px 4px;
+      z-index: 100;
+    }
+    .nav-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      font-size: 10.5px;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 8px;
+      transition: all 0.2s;
+    }
+    .nav-btn .icon {
+      font-size: 18px;
+    }
+    .nav-btn.active {
+      color: var(--accent-cyan);
+      background: rgba(0, 200, 255, 0.08);
+    }
+    /* Content views */
+    .tab-content {
+      display: none;
+      padding: 16px;
+      animation: fadeIn 0.25s ease-in-out;
+    }
+    .tab-content.active {
+      display: block;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    /* Global Control Bar */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .stat-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 8px;
+      text-align: center;
+    }
+    .stat-card .val {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--accent-cyan);
+    }
+    .stat-card .lbl {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 2px;
+      text-transform: uppercase;
+    }
+    .quick-actions {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .btn {
+      flex: 1;
+      padding: 9px 12px;
+      border-radius: 8px;
+      border: none;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: transform 0.1s, opacity 0.2s;
+    }
+    .btn:active {
+      transform: scale(0.97);
+    }
+    .btn-green { background: #3aa85e; color: #fff; }
+    .btn-red { background: #c84040; color: #fff; }
+    .btn-blue { background: #3878c8; color: #fff; }
+    .btn-secondary { background: #262c38; color: var(--text); border: 1px solid var(--border); }
+    /* Account Card */
+    .account-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 12px;
+      transition: border-color 0.2s;
+    }
+    .account-card.guard-needed {
+      border-color: var(--accent-orange);
+      box-shadow: 0 0 12px rgba(255, 160, 40, 0.2);
+    }
+    .account-card.boosting {
+      border-color: rgba(80, 200, 120, 0.4);
+    }
+    .acc-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .acc-name {
+      font-size: 15px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .badge {
+      font-size: 10.5px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .badge-green { background: rgba(80, 200, 120, 0.2); color: var(--accent-green); }
+    .badge-yellow { background: rgba(255, 200, 50, 0.2); color: #ffc832; }
+    .badge-orange { background: rgba(255, 160, 40, 0.2); color: var(--accent-orange); }
+    .badge-red { background: rgba(220, 80, 80, 0.2); color: var(--accent-red); }
+    .badge-gray { background: rgba(140, 150, 165, 0.2); color: var(--text-muted); }
+    .acc-details {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.6;
+      margin-bottom: 12px;
+    }
+    .games-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin: 8px 0;
+    }
+    .chip {
+      background: #252b37;
+      border: 1px solid #323a4b;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      color: #b0b8c8;
+    }
+    .acc-actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    .acc-actions .btn {
+      padding: 7px 10px;
+      font-size: 11.5px;
+    }
+    /* Guard prompt inside card */
+    .guard-box {
+      background: rgba(255, 160, 40, 0.1);
+      border: 1px dashed var(--accent-orange);
+      border-radius: 8px;
+      padding: 10px;
+      margin-top: 10px;
+    }
+    .guard-box label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--accent-orange);
+      display: block;
+      margin-bottom: 6px;
+    }
+    .guard-input-row {
+      display: flex;
+      gap: 6px;
+    }
+    .input-text {
+      background: #141720;
+      border: 1px solid var(--border);
+      color: #fff;
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      width: 100%;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .input-text:focus {
+      border-color: var(--accent-cyan);
+    }
+    /* Games Tab & Live Search */
+    .search-box-wrap {
+      position: relative;
+      margin-bottom: 14px;
+    }
+    .search-input {
+      width: 100%;
+      padding: 12px 14px 12px 38px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: #fff;
+      font-size: 13.5px;
+      outline: none;
+      transition: all 0.2s;
+    }
+    .search-input:focus {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 10px rgba(0, 200, 255, 0.2);
+    }
+    .search-icon {
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 15px;
+      color: var(--text-muted);
+    }
+    .search-spinner {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 13px;
+      color: var(--accent-cyan);
+      display: none;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { 100% { transform: translateY(-50%) rotate(360deg); } }
+    .search-results-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 20px;
+      max-height: 380px;
+      overflow-y: auto;
+    }
+    .game-result-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transition: background 0.15s;
+    }
+    .game-result-card:hover {
+      background: var(--card-hover);
+    }
+    .game-thumb {
+      width: 58px;
+      height: 32px;
+      border-radius: 4px;
+      object-fit: cover;
+      background: #141720;
+    }
+    .game-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .game-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .game-appid {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .btn-add-game {
+      background: #288048;
+      color: #fff;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 11.5px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn-add-game:active {
+      transform: scale(0.95);
+    }
+    /* Toast */
+    #toast {
+      position: fixed;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-30px);
+      background: #1f2736;
+      border: 1px solid var(--accent-cyan);
+      color: #fff;
+      padding: 10px 18px;
+      border-radius: 20px;
+      font-size: 12.5px;
+      font-weight: 600;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+      opacity: 0;
+      transition: all 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+      z-index: 1000;
+      pointer-events: none;
+    }
+    #toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+    /* Form styles */
+    .form-group {
+      margin-bottom: 14px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    .logs-terminal {
+      background: #0d0f14;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      font-family: Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.5;
+      height: 380px;
+      overflow-y: auto;
+      color: #b0bac9;
+    }
+    .log-line {
+      margin-bottom: 4px;
+      word-break: break-all;
+    }
+    .log-time { color: #5a6475; margin-right: 6px; }
+  </style>
+</head>
+<body>
+
+  <!-- Top Header -->
+  <header>
+    <div class="logo-area">
+      <h1>⚡ SteamBooster</h1>
+    </div>
+    <div id="statusPill" class="status-pill">
+      <div class="pulse-dot"></div>
+      <span id="activeCountText">Yükleniyor...</span>
+    </div>
+  </header>
+
+  <!-- Toast -->
+  <div id="toast">Bildirim</div>
+
+  <!-- Main Container -->
+  <main>
+
+    <!-- Tab 1: Dashboard -->
+    <section id="tab-dashboard" class="tab-content active">
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="val" id="statTotalHours">0.0h</div>
+          <div class="lbl">Toplam Saat</div>
+        </div>
+        <div class="stat-card">
+          <div class="val" id="statActiveAccounts">0</div>
+          <div class="lbl">Kasan Hesap</div>
+        </div>
+        <div class="stat-card">
+          <div class="val" id="statTotalGames">0</div>
+          <div class="lbl">Toplam Oyun</div>
+        </div>
+      </div>
+
+      <div class="quick-actions">
+        <button class="btn btn-green" onclick="apiAction('/api/boost/start_all')">▶ Tümünü Başlat</button>
+        <button class="btn btn-red" onclick="apiAction('/api/boost/stop_all')">⏹ Tümünü Durdur</button>
+        <button class="btn btn-secondary" onclick="apiAction('/api/boost/restart_all')">🔄 Yenile</button>
+      </div>
+
+      <div id="accountsList">
+        <!-- Rendered by JS -->
+      </div>
+    </section>
+
+    <!-- Tab 2: Games Management (Live Search) -->
+    <section id="tab-games" class="tab-content">
+      <div class="form-group">
+        <label>Hesap Seçin:</label>
+        <select id="gamesAccountSelect" class="input-text" onchange="renderAccountGames()">
+          <!-- Populated by JS -->
+        </select>
+      </div>
+
+      <h3 style="font-size: 14px; margin-bottom: 8px; color: var(--accent-cyan);">🔍 Steam'de Oyun Ara ve Ekle</h3>
+      <div class="search-box-wrap">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="gameSearchInput" class="search-input" placeholder="Oyun adı yazın (örn: counter, rust, gta)..." oninput="onSearchInput(this.value)">
+        <span id="searchSpinner" class="search-spinner">⏳</span>
+      </div>
+
+      <div id="searchResultsList" class="search-results-list">
+        <!-- Live search results appear here -->
+      </div>
+
+      <h3 style="font-size: 14px; margin: 16px 0 8px 0; color: #fff;">🕹️ Bu Hesaptaki Aktif Oyunlar:</h3>
+      <div id="currentAccountGamesList" class="search-results-list">
+        <!-- Active games of selected account -->
+      </div>
+    </section>
+
+    <!-- Tab 3: Add Account -->
+    <section id="tab-add" class="tab-content">
+      <h3 style="font-size: 15px; margin-bottom: 12px; color: var(--accent-blue);">➕ Yeni Steam Hesabı Ekle</h3>
+      <form id="addAccountForm" onsubmit="handleAddAccount(event)">
+        <div class="form-group">
+          <label>Steam Kullanıcı Adı:</label>
+          <input type="text" id="addUsername" class="input-text" placeholder="Steam login adı" required>
+        </div>
+        <div class="form-group">
+          <label>Şifre:</label>
+          <input type="password" id="addPassword" class="input-text" placeholder="Steam şifresi" required>
+        </div>
+        <div class="form-group">
+          <label>Özel Oyun Başlığı (İsteğe bağlı):</label>
+          <input type="text" id="addCustomTitle" class="input-text" placeholder="Örn: Half-Life 3 (Beta) veya {hours}h boosted">
+        </div>
+        <div class="form-group">
+          <label>Shared Secret (Otomatik 2FA - İsteğe bağlı):</label>
+          <input type="text" id="addSharedSecret" class="input-text" placeholder="Steam Guard otomatik kod üretimi için">
+        </div>
+        <button type="submit" class="btn btn-green" style="width: 100%; padding: 12px; margin-top: 10px;">💾 Hesabı Kaydet ve Başlat</button>
+      </form>
+    </section>
+
+    <!-- Tab 4: Cards & Inventory -->
+    <section id="tab-cards" class="tab-content">
+      <h3 style="font-size: 15px; margin-bottom: 12px; color: var(--accent-purple);">🃏 Düşen Steam Koleksiyon Kartları</h3>
+      <div id="cardsList" class="search-results-list">
+        <!-- Cards drop history -->
+      </div>
+    </section>
+
+    <!-- Tab 5: Logs -->
+    <section id="tab-logs" class="tab-content">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <h3 style="font-size: 14px; color: var(--accent-blue);">📜 Canlı Sistem Logları</h3>
+        <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;" onclick="loadLogs()">Yenile</button>
+      </div>
+      <div id="logsTerminal" class="logs-terminal">
+        <!-- Live logs -->
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Bottom Navigation -->
+  <nav class="bottom-nav">
+    <button class="nav-btn active" onclick="switchTab('dashboard')">
+      <span class="icon">⚡</span>
+      <span>Hesaplar</span>
+    </button>
+    <button class="nav-btn" onclick="switchTab('games')">
+      <span class="icon">🎮</span>
+      <span>Oyunlar</span>
+    </button>
+    <button class="nav-btn" onclick="switchTab('add')">
+      <span class="icon">➕</span>
+      <span>Ekle</span>
+    </button>
+    <button class="nav-btn" onclick="switchTab('cards')">
+      <span class="icon">🃏</span>
+      <span>Kartlar</span>
+    </button>
+    <button class="nav-btn" onclick="switchTab('logs')">
+      <span class="icon">📜</span>
+      <span>Loglar</span>
+    </button>
+  </nav>
+
+  <script>
+    // Telegram WebApp Setup
+    if (window.Telegram && window.Telegram.WebApp) {
+      const tg = window.Telegram.WebApp;
+      tg.ready();
+      tg.expand();
+      try { tg.setHeaderColor("#171a22"); } catch(e){}
+    }
+
+    let currentAccounts = [];
+    let searchDebounceTimer = null;
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.innerText = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 2800);
+      if (window.Telegram?.WebApp?.HapticFeedback) {
+        window.Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+      }
+    }
+
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+      document.getElementById('tab-' + tabId).classList.add('active');
+      event.currentTarget.classList.add('active');
+      if (tabId === 'games') renderAccountGames();
+      if (tabId === 'cards') loadCards();
+      if (tabId === 'logs') loadLogs();
+      if (window.Telegram?.WebApp?.HapticFeedback) {
+        window.Telegram.WebApp.HapticFeedback.impactOccurred('light');
+      }
+    }
+
+    // Status fetch & render
+    async function loadStatus() {
+      try {
+        const resp = await fetch('/api/status');
+        const data = await resp.json();
+        currentAccounts = data.accounts || [];
+        renderDashboard(data);
+        updateAccountSelect();
+      } catch (err) {
+        console.error("Status fetch error", err);
+      }
+    }
+
+    function renderDashboard(data) {
+      const accs = data.accounts || [];
+      const boostingCount = accs.filter(a => a.status === 'Boosting').length;
+      const guardCount = accs.filter(a => a.status && a.status.startsWith && a.status.startsWith('Awaiting')).length;
+      let totalHours = 0;
+      let totalGames = 0;
+
+      accs.forEach(a => {
+        totalHours += a.hours_boosted || 0;
+        totalGames += (a.games || []).length;
+      });
+
+      document.getElementById('statTotalHours').innerText = totalHours.toFixed(1) + 'h';
+      document.getElementById('statActiveAccounts').innerText = boostingCount + '/' + accs.length;
+      document.getElementById('statTotalGames').innerText = totalGames;
+
+      const pill = document.getElementById('statusPill');
+      if (guardCount > 0) {
+        pill.innerHTML = '<div class="pulse-dot"></div>' + guardCount + ' Guard Bekliyor';
+        pill.style.color = 'var(--accent-orange)';
+        pill.style.background = 'rgba(255, 160, 40, 0.15)';
+      } else if (boostingCount > 0) {
+        pill.innerHTML = '<div class="pulse-dot"></div>' + boostingCount + ' Hesap Kasılıyor';
+        pill.style.color = 'var(--accent-green)';
+        pill.style.background = 'rgba(80, 200, 120, 0.15)';
+      } else {
+        pill.innerHTML = '⚪ Boşta';
+        pill.style.color = 'var(--text-muted)';
+        pill.style.background = 'rgba(140, 150, 165, 0.15)';
+      }
+
+      const listContainer = document.getElementById('accountsList');
+      if (accs.length === 0) {
+        listContainer.innerHTML = '<div style="text-align:center; padding:30px; color:var(--text-muted);">Henüz hesap eklenmemiş. Alttaki "Ekle" sekmesinden hesap ekleyebilirsiniz.</div>';
+        return;
+      }
+
+      let html = '';
+      accs.forEach(a => {
+        const isBoosting = a.status === 'Boosting';
+        const isGuard = typeof a.status === 'string' && a.status.includes('Guard');
+        const badgeClass = isBoosting ? 'badge-green' : isGuard ? 'badge-orange' : (a.status === 'Connecting' ? 'badge-yellow' : 'badge-gray');
+        const badgeLabel = isBoosting ? 'Kasılıyor' : isGuard ? 'Guard Gerekli' : (a.status || 'Durduruldu');
+
+        html += `
+          <div class="account-card ${isBoosting ? 'boosting' : ''} ${isGuard ? 'guard-needed' : ''}">
+            <div class="acc-header">
+              <span class="acc-name">👤 ${escapeHtml(a.username)}</span>
+              <span class="badge ${badgeClass}">${badgeLabel}</span>
+            </div>
+            <div class="acc-details">
+              ⏱️ <b>${(a.hours_boosted || 0).toFixed(1)}</b> saat kasıldı • 🎮 <b>${(a.games || []).length}</b> oyun<br>
+              🏷️ Başlık: <i>${escapeHtml(a.custom_title || 'Varsayılan')}</i>
+            </div>
+            <div class="games-chips">
+              ${(a.games || []).map(g => `<span class="chip">${escapeHtml(g.name)} (${g.app_id})</span>`).join('')}
+            </div>
+            ${isGuard ? `
+              <div class="guard-box">
+                <label>🛡️ Steam Guard Kodu:</label>
+                <div class="guard-input-row">
+                  <input type="text" id="guardInput_${a.id}" class="input-text" placeholder="Örn: 2F9KR" maxlength="5">
+                  <button class="btn btn-green" onclick="submitGuardCode(${a.id})">Onayla</button>
+                </div>
+              </div>
+            ` : ''}
+            <div class="acc-actions">
+              ${isBoosting
+                ? `<button class="btn btn-red" onclick="apiAction('/api/boost/stop', { account_id: ${a.id} })">⏹ Durdur</button>`
+                : `<button class="btn btn-green" onclick="apiAction('/api/boost/start', { account_id: ${a.id} })">▶ Başlat</button>`
+              }
+              <button class="btn btn-secondary" onclick="openGamesTabForAccount(${a.id})">🎮 Oyunlar</button>
+              <button class="btn btn-secondary" style="color:var(--accent-red);" onclick="deleteAccount(${a.id}, '${escapeHtml(a.username)}')">🗑️</button>
+            </div>
+          </div>
+        `;
+      });
+      listContainer.innerHTML = html;
+    }
+
+    function updateAccountSelect() {
+      const select = document.getElementById('gamesAccountSelect');
+      const cur = select.value;
+      select.innerHTML = currentAccounts.map(a => `<option value="${a.id}">${escapeHtml(a.username)} (${(a.games||[]).length} oyun)</option>`).join('');
+      if (cur && currentAccounts.some(a => a.id == cur)) {
+        select.value = cur;
+      }
+    }
+
+    function openGamesTabForAccount(accId) {
+      switchTab('games');
+      document.getElementById('gamesAccountSelect').value = accId;
+      renderAccountGames();
+    }
+
+    function renderAccountGames() {
+      const select = document.getElementById('gamesAccountSelect');
+      const accId = select.value;
+      const acc = currentAccounts.find(a => a.id == accId);
+      const container = document.getElementById('currentAccountGamesList');
+      if (!acc) {
+        container.innerHTML = '<div style="color:var(--text-muted); padding:10px;">Hesap seçilmedi.</div>';
+        return;
+      }
+      if (!acc.games || acc.games.length === 0) {
+        container.innerHTML = '<div style="color:var(--text-muted); padding:10px;">Bu hesapta henüz oyun yok. Yukarıdan aratıp ekleyebilirsiniz!</div>';
+        return;
+      }
+      container.innerHTML = acc.games.map(g => `
+        <div class="game-result-card">
+          <img class="game-thumb" src="https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${g.app_id}/capsule_231x87.jpg" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'58\\' height=\\'32\\' fill=\\'%23252b37\\'><rect width=\\'100%\\' height=\\'100%\\'/></svg>'">
+          <div class="game-info">
+            <div class="game-title">${escapeHtml(g.name)}</div>
+            <div class="game-appid">AppID: ${g.app_id}</div>
+          </div>
+          <button class="btn btn-secondary" style="color:var(--accent-red); padding:5px 8px; font-size:11px;" onclick="removeGameFromAccount(${acc.id}, ${g.app_id})">Kaldır ❌</button>
+        </div>
+      `).join('');
+    }
+
+    // Auto-complete game search
+    function onSearchInput(query) {
+      clearTimeout(searchDebounceTimer);
+      const spinner = document.getElementById('searchSpinner');
+      const resultsDiv = document.getElementById('searchResultsList');
+
+      if (!query || query.trim().length < 2) {
+        spinner.style.display = 'none';
+        resultsDiv.innerHTML = '';
+        return;
+      }
+
+      spinner.style.display = 'block';
+      searchDebounceTimer = setTimeout(async () => {
+        try {
+          const resp = await fetch('/api/games/search?q=' + encodeURIComponent(query.trim()));
+          const results = await resp.json();
+          spinner.style.display = 'none';
+          renderSearchResults(results);
+        } catch (e) {
+          spinner.style.display = 'none';
+          console.error("Game search failed", e);
+        }
+      }, 250);
+    }
+
+    function renderSearchResults(results) {
+      const container = document.getElementById('searchResultsList');
+      const select = document.getElementById('gamesAccountSelect');
+      const accId = select.value;
+      const acc = currentAccounts.find(a => a.id == accId);
+
+      if (!results || results.length === 0) {
+        container.innerHTML = '<div style="color:var(--text-muted); padding:10px; font-size:12px;">Eşleşen Steam oyunu bulunamadı.</div>';
+        return;
+      }
+
+      container.innerHTML = results.map(r => {
+        const already = acc && acc.games && acc.games.some(g => g.app_id == r.app_id);
+        return `
+          <div class="game-result-card">
+            <img class="game-thumb" src="${r.tiny_image}" onerror="this.src='https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${r.app_id}/capsule_231x87.jpg'">
+            <div class="game-info">
+              <div class="game-title">${escapeHtml(r.name)}</div>
+              <div class="game-appid">AppID: ${r.app_id}</div>
+            </div>
+            ${already 
+              ? `<span style="font-size:11px; color:var(--accent-green); font-weight:600;">✓ Eklendi</span>`
+              : `<button class="btn-add-game" onclick="addGameToAccount(${accId}, ${r.app_id}, '${escapeJs(r.name)}')">+ Ekle</button>`
+            }
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function addGameToAccount(accId, appId, gameName) {
+      if (!accId) {
+        showToast("Lütfen önce bir hesap seçin!");
+        return;
+      }
+      try {
+        const resp = await fetch('/api/accounts/games/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account_id: Number(accId), app_id: Number(appId), name: gameName })
+        });
+        const res = await resp.json();
+        if (res.ok) {
+          showToast(`✅ ${gameName} eklendi!`);
+          await loadStatus();
+          renderAccountGames();
+          // re-render search results with checked status
+          const currentQuery = document.getElementById('gameSearchInput').value;
+          if (currentQuery) onSearchInput(currentQuery);
+        } else {
+          showToast("❌ " + (res.error || "Hata oluştu"));
+        }
+      } catch (e) {
+        showToast("❌ Bağlantı hatası");
+      }
+    }
+
+    async function removeGameFromAccount(accId, appId) {
+      try {
+        const resp = await fetch('/api/accounts/games/remove', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account_id: Number(accId), app_id: Number(appId) })
+        });
+        const res = await resp.json();
+        if (res.ok) {
+          showToast("Oyun hesaptan kaldırıldı");
+          await loadStatus();
+          renderAccountGames();
+        }
+      } catch (e) {
+        showToast("❌ Bağlantı hatası");
+      }
+    }
+
+    async function submitGuardCode(accId) {
+      const input = document.getElementById('guardInput_' + accId);
+      const code = input ? input.value.trim().toUpperCase() : '';
+      if (!code) {
+        showToast("Lütfen Steam Guard kodunu girin");
+        return;
+      }
+      try {
+        const resp = await fetch('/api/accounts/guard', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account_id: Number(accId), code: code })
+        });
+        const res = await resp.json();
+        if (res.ok) {
+          showToast("✅ Guard kodu gönderildi!");
+          setTimeout(loadStatus, 1000);
+        } else {
+          showToast("❌ " + (res.error || "Kod gönderilemedi"));
+        }
+      } catch (e) {
+        showToast("❌ Bağlantı hatası");
+      }
+    }
+
+    async function handleAddAccount(e) {
+      e.preventDefault();
+      const user = document.getElementById('addUsername').value.trim();
+      const pass = document.getElementById('addPassword').value.trim();
+      const title = document.getElementById('addCustomTitle').value.trim();
+      const secret = document.getElementById('addSharedSecret').value.trim();
+
+      if (!user || !pass) {
+        showToast("Kullanıcı adı ve şifre zorunludur!");
+        return;
+      }
+
+      try {
+        const resp = await fetch('/api/accounts/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: user, password: pass, custom_title: title, shared_secret: secret })
+        });
+        const res = await resp.json();
+        if (res.ok) {
+          showToast(`✅ ${user} başarıyla eklendi!`);
+          document.getElementById('addAccountForm').reset();
+          await loadStatus();
+          switchTab('dashboard');
+        } else {
+          showToast("❌ " + (res.error || "Hesap eklenemedi"));
+        }
+      } catch (e) {
+        showToast("❌ Bağlantı hatası");
+      }
+    }
+
+    async function deleteAccount(accId, username) {
+      if (!confirm(`'${username}' hesabını silmek istediğinize emin misiniz?`)) return;
+      try {
+        const resp = await fetch('/api/accounts/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account_id: Number(accId) })
+        });
+        const res = await resp.json();
+        if (res.ok) {
+          showToast("Hesap silindi");
+          loadStatus();
+        }
+      } catch (e) {
+        showToast("❌ Bağlantı hatası");
+      }
+    }
+
+    async function apiAction(url, body) {
+      try {
+        const opts = body ? {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        } : { method: 'POST' };
+        await fetch(url, opts);
+        showToast("İşlem uygulandı!");
+        setTimeout(loadStatus, 500);
+      } catch (e) {
+        showToast("❌ İstek başarısız");
+      }
+    }
+
+    async function loadCards() {
+      try {
+        const resp = await fetch('/api/cards');
+        const cards = await resp.json();
+        const container = document.getElementById('cardsList');
+        if (!cards || cards.length === 0) {
+          container.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding:30px;">Henüz kaydedilmiş kart düşmesi yok. Oyun kasılırken düşen kartlar ve Steam Pazar değerleri burada listelenecektir.</div>';
+          return;
+        }
+        container.innerHTML = cards.map(c => `
+          <div class="game-result-card">
+            <div style="font-size:24px;">💎</div>
+            <div class="game-info">
+              <div class="game-title">${escapeHtml(c.card_name)}</div>
+              <div class="game-appid">🎮 ${escapeHtml(c.game_name)} • 👤 ${escapeHtml(c.username)}</div>
+            </div>
+            <div style="text-align:right;">
+              <span style="font-size:12px; font-weight:700; color:var(--accent-green);">${escapeHtml(c.market_price)}</span><br>
+              <span style="font-size:10px; color:var(--text-muted);">${escapeHtml(c.timestamp)}</span>
+            </div>
+          </div>
+        `).join('');
+      } catch (e) {
+        console.error("Cards load error", e);
+      }
+    }
+
+    async function loadLogs() {
+      try {
+        const resp = await fetch('/api/logs');
+        const logs = await resp.json();
+        const term = document.getElementById('logsTerminal');
+        if (!logs || logs.length === 0) {
+          term.innerHTML = '<div style="color:#5a6475;">Henüz log kaydı yok.</div>';
+          return;
+        }
+        term.innerHTML = logs.map(l => `
+          <div class="log-line">
+            <span class="log-time">[${l.timestamp}]</span>
+            <span>${escapeHtml(l.message)}</span>
+          </div>
+        `).join('');
+        term.scrollTop = term.scrollHeight;
+      } catch (e) {
+        console.error("Logs load error", e);
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function escapeJs(str) {
+      if (!str) return '';
+      return String(str).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    }
+
+    // Initial load & Polling loop (every 3s)
+    loadStatus();
+    setInterval(loadStatus, 3000);
+  </script>
+</body>
+</html>

@@ -27,6 +27,24 @@ pub fn update_language_and_save(new_lang: Language) {
     config.save();
 }
 
+pub fn save_web_app_url(url: &str) {
+    let mut config = AppConfig::load();
+    config.settings.web_app_url = url.trim().to_string();
+    config.save();
+}
+
+pub fn urlencoding_encode(s: &str) -> String {
+    let mut result = String::new();
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.' || b == b'~' {
+            result.push(b as char);
+        } else {
+            result.push_str(&format!("%{:02X}", b));
+        }
+    }
+    result
+}
+
 pub const POPULAR_GAMES: &[(&str, u32)] = &[
     ("Counter-Strike 2", 730),
     ("Dota 2", 570),
@@ -240,6 +258,14 @@ pub struct AppSettings {
     pub telegram_notify_status: bool,
     #[serde(default = "default_true")]
     pub dev_debug_mode: bool,
+    #[serde(default = "default_web_app_port")]
+    pub web_app_port: u16,
+    #[serde(default)]
+    pub web_app_url: String,
+}
+
+fn default_web_app_port() -> u16 {
+    8080
 }
 
 fn default_true() -> bool {
@@ -310,6 +336,8 @@ impl Default for AppSettings {
             telegram_notify_afk: true,
             telegram_notify_status: true,
             dev_debug_mode: true,
+            web_app_port: 8080,
+            web_app_url: String::new(),
         }
     }
 }

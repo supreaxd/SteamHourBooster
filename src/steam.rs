@@ -933,6 +933,14 @@ async fn process_card_drop(
     let final_card = card_name.unwrap_or_else(|| "Trading Card".to_string());
     let final_price = price_str.unwrap_or_else(|| "Not listed on market yet / Unknown".to_string());
 
+    crate::inventory::record_card_drop(crate::inventory::CardDropEvent {
+        timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
+        username: username.clone(),
+        game_name: game_name.clone(),
+        card_name: final_card.clone(),
+        market_price: final_price.clone(),
+    });
+
     logger::log_success(&format!(
         "🃏 [CARD DROPPED!] [{}] 🎮 Game: {} | 💎 Card: {} | 💰 Steam Market Price: {}",
         username, game_name, final_card, final_price

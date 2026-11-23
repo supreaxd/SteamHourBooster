@@ -13,6 +13,7 @@ mod qr_auth;
 mod steam;
 mod telegram;
 mod tray;
+mod web_server;
 
 use eframe::egui;
 
@@ -21,6 +22,7 @@ const APP_ICON_PNG: &[u8] = include_bytes!("../assets/icon.png");
 fn main() -> eframe::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let config = crate::data::AppConfig::load();
+    crate::web_server::start_web_server(config.settings.web_app_port);
     let start_minimized = args.iter().any(|arg| arg == "--minimized" || arg == "--tray" || arg == "--background")
         || config.settings.start_minimized;
 
