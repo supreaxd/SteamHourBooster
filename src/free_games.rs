@@ -17,10 +17,6 @@ pub async fn claim_free_licenses(connection: &Connection, username: &str, appids
                 "🎁 [{}] Free game/package license requested ({} AppIDs: {:?})",
                 username, appids.len(), appids
             ));
-            crate::telegram::send_telegram_alert(&format!(
-                "🎁 *[Free Game/Package Claimed]* [{}]\nLicenses for `{:?}` added to your Steam account!",
-                username, appids
-            ));
             appids
         }
         Err(e) => {

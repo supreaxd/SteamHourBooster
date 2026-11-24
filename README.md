@@ -1,21 +1,22 @@
-# ⚡ SteamBooster
+# ⚡ SupBooster (SteamHourBooster)
 
-A lightweight, feature-rich multi-account Steam hour booster with a modern desktop GUI built in **Rust** using **egui** and **steam-vent**.
+A lightweight, feature-rich multi-account Steam hour booster and trading card idle tool with a modern desktop GUI built in **Rust** using **egui**, **window-vibrancy**, and **steam-vent**.
 
 ---
 
 ## ✨ Features
 
+- **Liquid Glass & Theme Engine**: 4 distinct theme modes (Dark, Light, System, Liquid Glass / Blur) with Windows 11 Acrylic/Mica hardware vibrancy and customizable RGB tint, text, and accent color pickers.
+- **Active Drops & Auto-Switch**: Scans Steam badge data to identify games with remaining card drops (`remaining_cards > 0`), shows remaining card drop badges, and automatically swaps to the next eligible game once a game's drops hit 0.
+- **Inventory Inspection & Bulk Selling**: Game-grouped collapsing headers, Steam CDN item thumbnails, live Steam Community Market prices, gross & net fee calculation (15% Steam/game cut), floating sticky action bar, Quick Sell / Undercut strategies, and 2FA mobile confirmations.
 - **Built with 100% Rust**: Engineered in pure Rust for blazing-fast performance, memory safety, and ultra-low CPU/RAM footprint (~50 MB RAM).
 - **Multi-Account Boosting**: Boost hours simultaneously across multiple Steam accounts.
 - **Multi-Game Boosting**: Select and boost up to 32 games per account at the same time.
 - **QR Code & Token Login**: Quick and secure QR code authentication, stored session refresh tokens (no need to re-enter credentials), and Shared Secret (auto-2FA TOTP) support.
 - **Custom Game Titles**: Display custom non-Steam game titles or dynamic rotating titles with live variables (`{hours}`, `{time}`, etc.).
 - **AFK Auto-Responder**: Automatically replies to incoming Steam friend messages while boosting, with customizable cooldowns per contact to prevent spam.
-- **Trading Card Drop Tracker**: Monitors Steam trading card drops in real time and reports drop events along with estimated Steam Community Market prices.
+- **Trading Card Drop Tracker**: Monitors Steam trading card drops in real time and reports drop events along with estimated Steam Community Market prices directly to Telegram.
 - **Free Game Hunter (License Claimer)**: Detects and automatically claims free-to-keep promotional packages and weekend giveaways directly to your Steam accounts.
-- **Inventory Tracker**: Tracks item counts and changes across your boosted accounts.
-- **Telegram Bot Integration**: Full remote control of boosting, status checks, and instant notifications via Telegram.
 - **Per-Account SOCKS5 / HTTP Proxy**: Route individual Steam accounts through dedicated proxies to isolate IP addresses.
 - **Security & DPAPI Encryption**: Passwords and session tokens are encrypted at rest using Windows Data Protection API (DPAPI).
 - **Auto-Pause on Real Game**: Automatically suspends boosting when you launch a real game, and resumes when you finish playing.
@@ -27,7 +28,7 @@ A lightweight, feature-rich multi-account Steam hour booster with a modern deskt
 ## 🚀 Getting Started
 
 ### Download Pre-built Release
-Check the [Releases](https://github.com) section for the latest `SteamBooster.exe`.
+Check the [Releases](https://github.com/supreaxd/SteamHourBooster/releases) section for the latest `SupBoost.exe`.
 
 ### Building from Source
 
@@ -38,15 +39,15 @@ Check the [Releases](https://github.com) section for the latest `SteamBooster.ex
 #### Build Command
 ```powershell
 # Clone the repository
-git clone https://github.com/<your-username>/SteamBooster.git
-cd SteamBooster
+git clone https://github.com/supreaxd/SteamHourBooster.git
+cd SteamHourBooster
 
 # Build in release mode
 cargo build --release
 ```
 
 The optimized executable will be located at:
-`target/release/SteamBooster.exe`
+`target/release/SupBoost.exe`
 
 ---
 

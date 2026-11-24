@@ -75,6 +75,67 @@ pub const POPULAR_GAMES: &[(&str, u32)] = &[
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ThemeMode {
+    #[default]
+    Dark,
+    Light,
+    System,
+    LiquidGlass,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum SellStrategy {
+    #[default]
+    QuickSell, // En düşük alış / sipariş fiyatından hızlı sat
+    Undercut,  // Mevcut en düşük listeleme - 0.01
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomThemeColors {
+    pub surface: [u8; 3],  // Window general / surface tint
+    pub text: [u8; 3],     // Text color
+    pub accent: [u8; 3],   // Accent color
+    pub glass_alpha: u8,   // 180-220
+}
+
+impl Default for CustomThemeColors {
+    fn default() -> Self {
+        Self {
+            surface: [22, 26, 36],
+            text: [198, 212, 223],
+            accent: [26, 159, 255],
+            glass_alpha: 200,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ActiveDropGame {
+    pub app_id: u32,
+    pub name: String,
+    pub remaining_cards: u32,
+    pub cards_dropped: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct InventoryItem {
+    pub asset_id: String,
+    pub class_id: String,
+    pub instance_id: String,
+    pub name: String,
+    pub market_hash_name: String,
+    pub icon_url: String,
+    pub item_type: String,
+    pub game_name: String,
+    pub app_id: u32,
+    pub amount: u32,
+    pub marketable: bool,
+    pub tradable: bool,
+    pub market_price: Option<f64>,
+    pub user_receives: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum PersonaState {
     #[default]
     Online,     // 1: Çevrimiçi (Aktif)
@@ -167,6 +228,8 @@ pub struct Account {
     #[serde(default)]
     pub shared_secret: Option<String>,
     #[serde(default)]
+    pub identity_secret: Option<String>,
+    #[serde(default)]
     pub persona_state: PersonaState,
     #[serde(skip)]
     pub status: AccountStatus,
@@ -175,6 +238,8 @@ pub struct Account {
     pub afk_reply_custom: Option<String>,
     #[serde(default)]
     pub proxy: Option<String>,
+    #[serde(default)]
+    pub steam_id: u64,
 }
 
 impl Account {
@@ -187,11 +252,13 @@ impl Account {
             games: Vec::new(),
             refresh_token: None,
             shared_secret: None,
+            identity_secret: None,
             persona_state: PersonaState::Online,
             status: AccountStatus::Idle,
             hours_boosted: 0.0,
             afk_reply_custom: None,
             proxy: None,
+            steam_id: 0,
         }
     }
 }
@@ -266,6 +333,14 @@ pub struct AppSettings {
     pub auto_check_updates: bool,
     #[serde(default = "default_github_repo")]
     pub github_repo: String,
+    #[serde(default)]
+    pub theme_mode: ThemeMode,
+    #[serde(default)]
+    pub custom_colors: CustomThemeColors,
+    #[serde(default = "default_true")]
+    pub auto_switch_drops: bool,
+    #[serde(default)]
+    pub sell_strategy: SellStrategy,
 }
 
 fn default_github_repo() -> String {
@@ -348,6 +423,10 @@ impl Default for AppSettings {
             web_app_url: String::new(),
             auto_check_updates: true,
             github_repo: default_github_repo(),
+            theme_mode: ThemeMode::Dark,
+            custom_colors: CustomThemeColors::default(),
+            auto_switch_drops: true,
+            sell_strategy: SellStrategy::QuickSell,
         }
     }
 }
@@ -388,6 +467,9 @@ impl AppConfig {
                         if let Some(ref s) = acc.shared_secret {
                             acc.shared_secret = Some(decrypt_string(s));
                         }
+                        if let Some(ref s) = acc.identity_secret {
+                            acc.identity_secret = Some(decrypt_string(s));
+                        }
                     }
                     update_global_settings(&config.settings);
                     return config;
@@ -418,6 +500,9 @@ impl AppConfig {
                 }
                 if let Some(ref s) = acc.shared_secret {
                     acc.shared_secret = Some(encrypt_string(s));
+                }
+                if let Some(ref s) = acc.identity_secret {
+                    acc.identity_secret = Some(encrypt_string(s));
                 }
             }
         }

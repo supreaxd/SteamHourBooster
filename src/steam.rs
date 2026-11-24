@@ -323,6 +323,12 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
 
             let my_steam_id = u64::from(connection.steam_id());
 
+            // Steam ID'yi Account struct'ına kaydet (inventory/owned-games için)
+            {
+                let mut a = acc_for_task.lock().unwrap();
+                a.steam_id = my_steam_id;
+            }
+
             // Ücretsiz lisansları talep et (Oyunların kütüphanede lisansının olduğundan emin olmak için)
             let free_appids: Vec<u32> = current_games.iter().map(|g| g.app_id).collect();
             if !free_appids.is_empty() {
@@ -478,10 +484,6 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
                                 app_id: playing_app,
                                 app_name: format!("AppID {}", playing_app),
                             };
-                            crate::telegram::send_telegram_alert(&format!(
-                                "🎮 *[Real Game Detected]* [{}]\nGame launched on computer (AppID {}). Hour boosting automatically paused.",
-                                username, playing_app
-                            ));
                         } else if !is_blocked && is_paused_for_game {
                             is_paused_for_game = false;
                             logger::log_success(&format!("[{}] 🎮 Real game closed. Resuming hour boosting!", username));
@@ -493,10 +495,6 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
                             let _ = connection.send(games_msg.clone()).await;
                             let mut a = acc_for_task.lock().unwrap();
                             a.status = AccountStatus::Boosting;
-                            crate::telegram::send_telegram_alert(&format!(
-                                "▶️ *[Resuming Boosting]* [{}]\nReal game closed. Hour boosting resumed automatically.",
-                                username
-                            ));
                         }
                     }
 
@@ -562,13 +560,6 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
                                         .unwrap_or_else(|| global_settings.afk_reply_message.clone());
 
                                     reply_to_friend(connection.clone(), username.clone(), from_id, reply_text.clone());
-
-                                    if global_settings.telegram_notify_afk {
-                                        crate::telegram::send_telegram_alert(&format!(
-                                            "💬 *[AFK Auto-Reply]* [{}]\n👤 Friend ID: `{}`\n📩 Incoming: \"{}\"\n📤 Reply: \"{}\"",
-                                            username, from_id, text, reply_text
-                                        ));
-                                    }
                                 } else {
                                     logger::log_info(&format!("[{}] Cooldown active ({} min) for friend ({}).", username, global_settings.afk_cooldown_mins, from_id));
                                 }

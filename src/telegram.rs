@@ -473,13 +473,6 @@ async fn handle_bot_command(command: &str) -> (String, Option<String>) {
     let accounts_arc = RUNTIME_ACCOUNTS_REF.get_or_init(|| Arc::new(Mutex::new(Vec::new()))).clone();
     let settings = get_global_settings();
     let lang = settings.language;
-    let bound_port = crate::web_server::get_bound_port();
-
-    let web_app_url = if !settings.web_app_url.is_empty() {
-        settings.web_app_url.clone()
-    } else {
-        format!("http://127.0.0.1:{}", bound_port)
-    };
 
     match cmd.as_str() {
         "/start" if parts.len() > 1 => {
@@ -491,87 +484,37 @@ async fn handle_bot_command(command: &str) -> (String, Option<String>) {
 
         "/start" | "/help" => {
             let msg = match lang {
-                Language::English => format!(
-                    "🚀 *SteamBooster Telegram Controller*\n\n\
-                    📱 *Telegram Mini App:*\n\
-                    • `/app` — Open Telegram Mini App controller\n\
-                    • `/setwebapp <url>` — Set Mini App HTTPS URL (ngrok/tunnel)\n\n\
-                    📊 *Status & Controls:*\n\
-                    • `/status` — View all accounts status\n\
-                    • `/start_all` — Start boosting all accounts\n\
-                    • `/stop_all` — Stop boosting all accounts\n\
-                    • `/restart_all` — Restart all accounts\n\
-                    • `/start <user>` — Start specific account\n\
-                    • `/stop <user>` — Stop specific account\n\
-                    • `/restart <user>` — Restart specific account\n\n\
-                    👤 *Account Management:*\n\
-                    • `/addaccount <user> <pass>` — Add Steam account\n\
-                    • `/delaccount <user>` — Remove Steam account\n\
-                    • `/guard <user> <code>` — Submit Steam Guard code\n\n\
-                    🎮 *Games & Cards:*\n\
-                    • `/games <user>` — View games of an account\n\
-                    • `/search <name>` — Live search games on Steam\n\
-                    • `/addgame <user> <appid>` — Add game to account\n\
-                    • `/removegame <user> <appid>` — Remove game from account\n\
-                    • `/cards` — View recent card drops\n\n\
-                    🌐 *Web App URL:* `{}`",
-                    web_app_url
-                ),
-                Language::Turkish => format!(
-                    "🚀 *SteamBooster Telegram Kontrolcüsü*\n\n\
-                    📱 *Telegram Mini App:*\n\
-                    • `/app` — Telegram Mini App arayüzünü aç\n\
-                    • `/setwebapp <url>` — Mini App HTTPS URL'sini ayarla (ngrok vs.)\n\n\
-                    📊 *Durum & Boost:*\n\
-                    • `/status` — Tüm hesapların durumunu listele\n\
-                    • `/start_all` — Tüm hesapları başlat\n\
-                    • `/stop_all` — Tüm hesapları durdur\n\
-                    • `/restart_all` — Tüm hesapları yeniden başlat\n\
-                    • `/start <hesap>` — Belirli bir hesabı başlat\n\
-                    • `/stop <hesap>` — Belirli bir hesabı durdur\n\
-                    • `/restart <hesap>` — Belirli bir hesabı yeniden başlat\n\n\
-                    👤 *Hesap Yönetimi:*\n\
-                    • `/addaccount <kullanıcı> <şifre>` — Yeni Steam hesabı ekle\n\
-                    • `/delaccount <hesap>` — Hesabı sil\n\
-                    • `/guard <hesap> <kod>` — Steam Guard kodunu ilet\n\n\
-                    🎮 *Oyun & Kart:*\n\
-                    • `/games <hesap>` — Hesaptaki oyunları listele\n\
-                    • `/search <oyun>` — Steam Mağazasında anlık oyun ara\n\
+                Language::English => "🤖 *SupBooster Telegram Bot*\n\n\
+                    • `/status` — View boosting status\n\
+                    • `/start_all` / `/stop_all` — Start or stop boosting for all accounts\n\
+                    • `/cards` — View recently dropped trading cards\n\
+                    • `/games <account>` — List games configured for account\n\
+                    • `/search <game>` — Search Steam Store games\n\
+                    • `/addgame <account> <appid>` — Add game to account\n\
+                    • `/removegame <account> <appid>` — Remove game\n\
+                    • `/guard <account> <code>` — Submit Steam Guard code".to_string(),
+
+                Language::Turkish => "🤖 *SupBooster Telegram Bot*\n\n\
+                    • `/status` — Hesapların anlık durumunu göster\n\
+                    • `/start_all` / `/stop_all` — Tüm hesapları başlat / durdur\n\
+                    • `/cards` — Düşen Steam koleksiyon kartları\n\
+                    • `/games <hesap>` — Hesabın kasılan oyun listesi\n\
+                    • `/search <oyun>` — Steam mağazasında oyun ara\n\
                     • `/addgame <hesap> <appid>` — Hesaba oyun ekle\n\
                     • `/removegame <hesap> <appid>` — Hesaptan oyun çıkar\n\
-                    • `/cards` — Düşen son koleksiyon kartlarını gör\n\n\
-                    🌐 *Web App URL:* `{}`",
-                    web_app_url
-                ),
-                Language::Russian => format!(
-                    "🚀 *SteamBooster Telegram Управление*\n\n\
-                    • `/app` — Открыть Mini App\n\
+                    • `/guard <hesap> <kod>` — Steam Guard kodunu gir".to_string(),
+
+                Language::Russian => "🤖 *SupBooster Telegram Bot*\n\n\
                     • `/status` — Статус аккаунтов\n\
                     • `/start_all` / `/stop_all` — Запуск / Стоп всех\n\
-                    • `/search <game>` — Поиск игр в Steam\n\
-                    • `/cards` — Выпавшие карточки\n\n\
-                    🌐 *URL:* `{}`",
-                    web_app_url
-                ),
+                    • `/cards` — Выпавшие карточки\n\
+                    • `/games <аккаунт>` — Список игр аккаунта\n\
+                    • `/search <игра>` — Поиск игр в Steam\n\
+                    • `/addgame <аккаунт> <appid>` — Добавить игру\n\
+                    • `/removegame <аккаунт> <appid>` — Удалить игру\n\
+                    • `/guard <аккаунт> <код>` — Ввести код Steam Guard".to_string(),
             };
-            (msg, Some(web_app_url))
-        }
-
-        "/app" => {
-            let msg = format!(
-                "🚀 *SteamBooster Mini App*\n\n\
-                Aşağıdaki butona tıklayarak PC uygulamanızı doğrudan Telegram içinden kontrol edebilirsiniz:\n\n\
-                🔗 *URL:* `{}`\n\
-                💡 *İpucu:* Eğer mobilde açmak istiyorsanız ve HTTPS gerekiyorsa, ngrok veya cloudflare tunnel URL'nizi `/setwebapp <url>` komutuyla kaydedebilirsiniz.",
-                web_app_url
-            );
-            (msg, Some(web_app_url))
-        }
-
-        "/setwebapp" if parts.len() > 1 => {
-            let url = parts[1].trim();
-            crate::data::save_web_app_url(url);
-            (format!("✅ Telegram Mini App URL'si güncellendi:\n`{}`", url), Some(url.to_string()))
+            (msg, None)
         }
 
         "/status" => {

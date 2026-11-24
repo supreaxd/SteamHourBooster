@@ -13,24 +13,25 @@ mod qr_auth;
 mod steam;
 mod telegram;
 mod tray;
+mod ui;
 mod updater;
-mod web_server;
 
 use eframe::egui;
 
 const APP_ICON_PNG: &[u8] = include_bytes!("../assets/icon.png");
 
 fn main() -> eframe::Result<()> {
+    crate::updater::cleanup_old_executable();
     let args: Vec<String> = std::env::args().collect();
     let config = crate::data::AppConfig::load();
-    crate::web_server::start_web_server(config.settings.web_app_port);
     let start_minimized = args.iter().any(|arg| arg == "--minimized" || arg == "--tray" || arg == "--background")
         || config.settings.start_minimized;
 
     let mut viewport = egui::ViewportBuilder::default()
-        .with_title("SteamBooster v0.2.0")
-        .with_inner_size([1000.0, 680.0])
-        .with_min_inner_size([780.0, 520.0]);
+        .with_title("SupBooster")
+        .with_inner_size([1040.0, 700.0])
+        .with_min_inner_size([960.0, 620.0])
+        .with_transparent(true);
 
     if let Ok(icon) = eframe::icon_data::from_png_bytes(APP_ICON_PNG) {
         viewport = viewport.with_icon(icon);
@@ -46,10 +47,13 @@ fn main() -> eframe::Result<()> {
     };
 
     eframe::run_native(
-        "SteamBooster",
+        "SupBooster",
         options,
         Box::new(|cc| {
-            // Windows Segoe UI Emoji & Segoe UI font desteğini yükle (Simge ve Emojiler için)
+            // Steam eşya ve profil simgeleri için egui_extras image loaders kurulumu
+            egui_extras::install_image_loaders(&cc.egui_ctx);
+
+            // Windows Segoe UI Emoji & Segoe UI font desteği
             let mut fonts = egui::FontDefinitions::default();
             if let Ok(emoji_bytes) = std::fs::read("C:\\Windows\\Fonts\\seguiemj.ttf") {
                 fonts.font_data.insert("segoe_emoji".to_owned(), egui::FontData::from_owned(emoji_bytes));
