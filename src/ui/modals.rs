@@ -271,15 +271,15 @@ impl ModalManager {
                 ui.add_space(4.0);
 
                 let bullets = [
-                    "• Real Steam Community Market Listing: Full session cookie authentication from QR tokens with real HTTP POST /market/sellitem integration.",
-                    "• Steam Guard Mobile Confirmation Alert: Explicit notifications when listings require mobile verification on your phone app.",
-                    "• Clean Modal Display: Eliminated heavy black background darkening; modals now blend smoothly with desktop themes.",
-                    "• Steam Profile Pictures & GIF Support: Live Steam avatar CDN integration in the top status bar with animated GIF avatar support.",
-                    "• Real-Time Game Autocomplete: Instantly searches and auto-completes game names (e.g. 'Counter-Strike') as you type in Store Search.",
-                    "• Orange Restart All: Added prominent orange Restart All button next to Stop All in top header.",
-                    "• Light Theme Black Text Fix: High-contrast dark text guarantee in Light Mode, preventing invisible text issues.",
-                    "• Single Sidebar Icons: Clean navigation tab icons without duplication.",
-                    "• Automated Update Notifications: Prominent new version changelog pill displayed directly above sidebar Changelogs link with instant one-click updating.",
+                    "• Dedicated Library Scrolling: Fixed vertical scrolling bug in Account Owned Games. Expanded scroll area with persistent visible scrollbar for browsing large libraries effortlessly.",
+                    "• One-Click '＋ Add All to Boost': Instant button in the library header to add all owned games into your boost queue at once.",
+                    "• Account Deletion & Config Synchronization: Fixed bug where removing an account failed to delete it from the app and config.json. Immediately syncs deletions to disk and halts active workers.",
+                    "• Real-Time Steam Market Price Engine: Fixed flat $0.20 price bug. Inventory items query live market prices directly from Steam Community Market with rarity-based fallbacks.",
+                    "• Account Owned Games Scanner: Multi-source badge scraper, inventory-based game discovery, and instant background refresh.",
+                    "• Accurate Bulk Market Selling: Live market valuations for gross, net, and Steam fees.",
+                    "• Single Sidebar Icons: Clean navigation tab icons without duplication across all pages.",
+                    "• Dynamic Title Auto-Refresh: Automatically updates hours, game counts, and clock times every 10 minutes in Steam non-Steam game titles.",
+                    "• Steam Mobile QR Code Login: Instant session authorization and DPAPI encryption.",
                 ];
 
                 for b in &bullets {

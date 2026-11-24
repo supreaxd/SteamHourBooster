@@ -1,41 +1,62 @@
-# 🚀 SupBooster v1.1.0 (Official Release)
+# 🚀 SupBooster v1.2.1 (Maintenance & Usability Release)
 
-Welcome to **v1.1.0** of **SupBooster** (`SupBoost.exe`)! This release introduces dynamic non-Steam game title auto-replacements (`(hours)`, `(games)`, `(time)`, `(date)`), periodic 10-minute title auto-refresh, instant live hot-reload on account edits, permanent Windows DPAPI hardware encryption, instant Steam QR code login generation, and GitHub Atom feed & redirect fallback for update checking.
-
----
-
-### 🎮 1. Dynamic Steam Non-Steam Game Titles & Auto-Refresh
-- **Dynamic Variable Tags:** Use `(hours)` or `{hours}` to display real-time boosted hours (e.g. `14.2h`), `(games)` or `{games}` to display the number of active games (e.g. `14`), and `(time)` for current time (HH:MM).
-- **10-Minute Auto-Refresh:** Non-Steam game presence automatically re-evaluates and syncs to Steam every 10 minutes so hours and clock times stay accurate in friends lists.
-- **Instant Hot-Reload:** Editing an account's custom status/title or game list instantly updates the running boosting session without having to restart boosting.
+Welcome to **v1.2.1** of **SupBooster** (`SupBoost.exe`)! This release addresses library browsing, batch boosting operations, and account lifecycle management.
 
 ---
 
-### 📱 2. Steam Mobile QR Code Login Fixed
-- **Instant QR Generation:** Resolved the issue where QR codes did not load or spin indefinitely. QR authentication sessions now initialize immediately upon opening the modal.
-- **Live Polling & Token Storing:** Seamless scanning with Steam Mobile App and automatic DPAPI credential encryption.
+### 🎮 1. Dedicated Library Scrolling & "＋ Add All to Boost"
+- **Smooth & Persistent Scrolling:** Fixed the issue where adding games to boosting restricted vertical scrolling in the Account Owned Games (Library) view. The library now features a spacious scroll container with persistent scrollbars (`ScrollBarVisibility::AlwaysVisible`) and isolated scroll state (`id_salt`), allowing effortless scrolling through your entire library.
+- **One-Click "＋ Add All to Boost":** Added a dedicated `＋ Add All to Boost` button next to `🔄 Refresh Games` in the library header. One click instantly queues all library games (or filtered search results) into your boosting list.
+- **Boosting Games "✕ Clear All":** Added a `✕ Clear All` button in the Boosting Games section to quickly clear all queued games.
 
 ---
 
-### 🔒 3. Permanent Windows DPAPI Hardware Security
-- **Enforced Security:** Windows DPAPI hardware encryption is now permanently enabled across all accounts and tokens without requiring manual checkboxes.
+### 🗑️ 2. Account Deletion & Config Synchronization Fixed
+- **Complete Deletion Lifecycle:** Fixed the bug where deleting an account (`🗑`) failed to remove it from the application and `config.json`.
+- **Immediate Disk Persistence:** Deleting or saving an account immediately syncs to `config.json` on disk and updates runtime instances.
+- **Clean Session Termination:** Deleting an active account automatically terminates its Steam CM connection and cleans up background tasks.
 
 ---
 
-### 🚀 4. Seamless Update System & Sidebar Changelogs
-- **Prominent Update Indicator:** When a new version is published, an orange `🚀 Changelogs (v1.1.0)` pill appears directly ABOVE the sidebar's `Changelogs` link.
-- **Unmetered Atom & Redirect Fallback:** Update checks utilize GitHub's Atom feed and redirect mechanisms to bypass strict unauthenticated GitHub REST API rate limits (HTTP 429/403).
+### ⏱️ 3. Dynamic Title Tags in Logs & UI
+- **Live Tag Rendering:** Fixed logging so dynamic tags like `(hours)`, `(games)`, `(time)` display their actual computed values (e.g., `17.4h`, `21 games`) in logs on startup, presence hot-reloads, and 10-minute auto-refresh ticks.
 
 ---
 
-### 🎨 5. Controls & Theme Polish
-- **Orange Restart All:** Easily restart all accounts with the dedicated top-header button.
-- **Light Theme Contrast Guarantee:** Default dark text ensures perfect visibility when switching to Light theme.
-- **Clean Modals:** Removed screen dimming for modern translucent window overlay.
+# 🚀 SupBooster v1.2.0 (Official Release)
+
+Welcome to **v1.2.0** of **SupBooster** (`SupBoost.exe`)! This release brings major fixes to the Steam Inventory & Bulk Market Seller engine and the Account Owned Games scanner, along with complete UI polish.
+
+---
+
+### 🛒 1. Real-Time Steam Market Price Engine (0.20 Fixed)
+- **Live Price Querying:** Fixed the issue where all inventory items (CS2 skins, stickers, etc.) defaulted to a flat `$0.20` price. The engine now queries live Steam Community Market prices (`/market/priceoverview`) in the background.
+- **Rarity & Type Fallback Estimation:** If an item's live price is still being fetched or temporarily rate-limited, items receive realistic baseline values based on skin rarity (Covert, Classified, Restricted, Mil-Spec), stickers (Glitter, Holo, Foil), cases, and foil cards instead of a fixed $0.20.
+- **Accurate Bulk Market Listing:** Market sale transactions now list items at their true Steam Community Market value (or -$0.01 for Undercut strategy), preventing valuable items from being underpriced.
+
+---
+
+### 🎮 2. Account Owned Games Scanner Fixed
+- **Multi-Source Library Discovery:** Fixed the issue where clicking "Refresh Games" showed 0 games found. The scanner now scrapes paginated Steam Community badges (`/badges/?p=1..4`), extracts games from inventory items, and checks active Steam CM sessions.
+- **Instant Background UI Update:** Account Owned Games section now automatically updates and repaints immediately when the refresh task completes in the background.
+- **One-Click Boost Addition:** Any owned game can be added directly to the boosting list with one click (`＋ Add to Boost`).
+
+---
+
+### 🔄 3. Infinite Reconnection Loop Resolved
+- **Eliminated Free License Spam:** Removed invalid package license requests (`CMsgClientRequestFreeLicense`) on paid games (e.g. AppID 730 / CS2) that caused Steam CM WebSocket drops right after inventory checks.
+- **Smart Presence Updates:** Replaced rapid 60-second presence packet resends with intelligent 10-minute title refreshes and state-change triggers.
+- **Baseline Card Drop Fix:** Prevented false card drop alerts on startup when comparing against empty initial baseline.
+
+---
+
+### 🎨 4. Clean Single Tab Icons & 100% English UI
+- **Single Tab Icons:** Removed duplicate icons on sidebar tabs.
+- **Unified English Interface:** All badges, modals, confirmations, and settings are now standardized to clean English.
 
 ---
 
 ### 📦 Binary Assets
 - `SupBoost.exe`
-- `SupBoost.v1.1.0.exe`
+- `SupBoost.v1.2.0.exe`
 - `SteamBooster.exe`

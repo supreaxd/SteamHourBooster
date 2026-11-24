@@ -85,15 +85,18 @@ impl TopStatusBar {
                         let s_id = a.steam_id;
                         let proxy_opt = a.proxy.clone();
                         let arc_clone = arc.clone();
+                        let ctx_clone = ui.ctx().clone();
                         crate::steam::get_runtime().spawn(async move {
                             if let Some(av) = crate::inventory::fetch_account_avatar(s_id, proxy_opt).await {
                                 if let Ok(mut l) = arc_clone.lock() {
                                     l.avatar_url = Some(av);
                                 }
+                                ctx_clone.request_repaint();
                             } else {
                                 if let Ok(mut l) = arc_clone.lock() {
                                     l.avatar_url = Some("none".to_string());
                                 }
+                                ctx_clone.request_repaint();
                             }
                         });
                     }

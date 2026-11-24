@@ -54,6 +54,10 @@ pub fn get_account_inventory(steam_id: u64) -> Option<AccountInventoryInfo> {
     get_cache().lock().ok().and_then(|c| c.get(&steam_id).cloned())
 }
 
+fn get_detailed_cache() -> &'static Mutex<HashMap<u64, Vec<InventoryItem>>> {
+    DETAILED_INVENTORY_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 pub fn get_cached_detailed_inventory(steam_id: u64) -> Vec<InventoryItem> {
     let cache = DETAILED_INVENTORY_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     cache.lock().ok().and_then(|c| c.get(&steam_id).cloned()).unwrap_or_default()
@@ -279,6 +283,24 @@ pub async fn fetch_detailed_inventory(steam_id: u64, proxy_url: Option<String>) 
 
     logger::log_success(&format!("Successfully loaded {} inventory items for SteamID {}", items.len(), steam_id));
     set_cached_detailed_inventory(steam_id, items.clone());
+
+    // Spawn background task to fetch live Steam Community Market prices for all unique items
+    let needed: Vec<(u32, String)> = items
+        .iter()
+        .filter(|i| i.marketable && !i.market_hash_name.is_empty())
+        .map(|i| (i.app_id, i.market_hash_name.clone()))
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+
+    if !needed.is_empty() {
+        let sid = steam_id;
+        let p_url = proxy_url.clone();
+        tokio::spawn(async move {
+            update_inventory_market_prices(sid, needed, p_url).await;
+        });
+    }
+
     items
 }
 
@@ -335,17 +357,41 @@ fn parse_inventory_json(json: &serde_json::Value, items: &mut Vec<InventoryItem>
                 };
             }
 
-            // Estimate market price (default fallback $0.05 - $0.25 depending on type, or loaded asynchronously)
-            let base_price = if item_type.contains("Parlak") || item_type.contains("Foil") {
-                0.35
-            } else if item_type.contains("Kart") || item_type.contains("Card") {
-                0.08
-            } else if default_app_id == 730 {
-                0.20
+            // Check live price cache first, or assign realistic rarity/type estimate
+            let (base_price, seller_receives) = if let Some((p, r)) = get_cached_item_price(default_app_id, &market_hash_name) {
+                (p, r)
             } else {
-                0.05
+                let name_lower = name.to_lowercase();
+                let type_lower = item_type.to_lowercase();
+                let estimated = if name_lower.contains("knife") || name_lower.contains("karambit") || name_lower.contains("bayonet") || name_lower.contains("gloves") {
+                    85.00
+                } else if name_lower.contains("glitter") || name_lower.contains("holo") || name_lower.contains("foil") || name_lower.contains("gold") {
+                    0.85
+                } else if type_lower.contains("sticker") || type_lower.contains("çıkartma") {
+                    0.20
+                } else if type_lower.contains("case") || type_lower.contains("kasa") || type_lower.contains("container") {
+                    0.75
+                } else if type_lower.contains("parlak") || type_lower.contains("foil") {
+                    0.35
+                } else if type_lower.contains("kart") || type_lower.contains("card") {
+                    0.08
+                } else if default_app_id == 730 {
+                    if name_lower.contains("covert") || name_lower.contains("red") {
+                        12.00
+                    } else if name_lower.contains("classified") || name_lower.contains("pink") {
+                        3.50
+                    } else if name_lower.contains("restricted") || name_lower.contains("purple") {
+                        1.20
+                    } else if name_lower.contains("viper") || name_lower.contains("firebreathing") || name_lower.contains("uncharted") {
+                        0.85
+                    } else {
+                        0.35
+                    }
+                } else {
+                    0.05
+                };
+                (estimated, calculate_seller_receives(estimated))
             };
-            let seller_receives = calculate_seller_receives(base_price);
 
             items.push(InventoryItem {
                 asset_id: assetid.to_string(),
@@ -367,29 +413,100 @@ fn parse_inventory_json(json: &serde_json::Value, items: &mut Vec<InventoryItem>
     }
 }
 
+static LIVE_PRICE_CACHE: OnceLock<Mutex<HashMap<(u32, String), (f64, f64)>>> = OnceLock::new();
+
+fn get_live_price_cache() -> &'static Mutex<HashMap<(u32, String), (f64, f64)>> {
+    LIVE_PRICE_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub fn get_cached_item_price(app_id: u32, market_hash_name: &str) -> Option<(f64, f64)> {
+    if let Ok(c) = get_live_price_cache().lock() {
+        if let Some(price) = c.get(&(app_id, market_hash_name.to_string())) {
+            return Some(*price);
+        }
+    }
+    None
+}
+
+pub fn set_cached_item_price(app_id: u32, market_hash_name: &str, price: (f64, f64)) {
+    if let Ok(mut c) = get_live_price_cache().lock() {
+        c.insert((app_id, market_hash_name.to_string()), price);
+    }
+}
+
 /// Fetch real-time market price for a single item by market_hash_name
-pub async fn fetch_market_price(market_hash_name: &str, app_id: u32) -> Option<(f64, f64)> {
-    let client = build_http_client(None);
+pub async fn fetch_market_price(market_hash_name: &str, app_id: u32, proxy_url: Option<String>) -> Option<(f64, f64)> {
+    if let Some(cached) = get_cached_item_price(app_id, market_hash_name) {
+        return Some(cached);
+    }
+
+    let client = build_http_client(proxy_url);
     let url = format!(
         "https://steamcommunity.com/market/priceoverview/?appid={}&currency=1&market_hash_name={}",
         app_id,
         crate::data::urlencoding_encode(market_hash_name)
     );
 
-    if let Ok(resp) = client.get(&url).send().await {
-        if let Ok(json) = resp.json::<serde_json::Value>().await {
-            if json.get("success").and_then(|s| s.as_bool()).unwrap_or(false) {
-                if let Some(lowest_str) = json.get("lowest_price").and_then(|p| p.as_str()) {
-                    let cleaned: String = lowest_str.chars().filter(|c| c.is_ascii_digit() || *c == '.').collect();
-                    if let Ok(price) = cleaned.parse::<f64>() {
-                        let receives = calculate_seller_receives(price);
-                        return Some((price, receives));
+    let req = client
+        .get(&url)
+        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+        .header("Accept", "application/json, text/javascript, */*; q=0.01")
+        .header("Referer", "https://steamcommunity.com/market/");
+
+    if let Ok(resp) = req.send().await {
+        if resp.status().is_success() {
+            if let Ok(json) = resp.json::<serde_json::Value>().await {
+                if json.get("success").and_then(|s| s.as_bool()).unwrap_or(false) {
+                    let price_str_opt = json.get("lowest_price").and_then(|p| p.as_str())
+                        .or_else(|| json.get("median_price").and_then(|p| p.as_str()));
+                    if let Some(price_str) = price_str_opt {
+                        let cleaned: String = price_str
+                            .replace('$', "")
+                            .replace(',', ".")
+                            .chars()
+                            .filter(|c| c.is_ascii_digit() || *c == '.')
+                            .collect();
+                        if let Ok(price) = cleaned.parse::<f64>() {
+                            if price > 0.0 {
+                                let receives = calculate_seller_receives(price);
+                                set_cached_item_price(app_id, market_hash_name, (price, receives));
+                                return Some((price, receives));
+                            }
+                        }
                     }
                 }
             }
         }
     }
     None
+}
+
+/// Background updater for inventory items market prices
+pub async fn update_inventory_market_prices(
+    steam_id: u64,
+    needed: Vec<(u32, String)>,
+    proxy_url: Option<String>,
+) {
+    let mut updated_any = false;
+    for (app_id, market_hash_name) in needed {
+        if let Some((price, receives)) = fetch_market_price(&market_hash_name, app_id, proxy_url.clone()).await {
+            if let Ok(mut cache) = get_detailed_cache().lock() {
+                if let Some(items) = cache.get_mut(&steam_id) {
+                    for it in items.iter_mut() {
+                        if it.app_id == app_id && it.market_hash_name == market_hash_name {
+                            it.market_price = Some(price);
+                            it.user_receives = Some(receives);
+                            updated_any = true;
+                        }
+                    }
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(180)).await;
+    }
+    if updated_any {
+        logger::log_info(&format!("✓ Updated real-time Steam Community Market prices for SteamID {}", steam_id));
+    }
 }
 
 /// Bulk sell result
@@ -839,53 +956,111 @@ pub fn get_cached_owned_games(steam_id: u64) -> Vec<crate::data::GameEntry> {
 }
 
 /// Asynchronously fetch games owned by the account
+pub async fn fetch_account_owned_games_force(
+    steam_id: u64,
+    proxy_url: Option<String>,
+) -> Vec<crate::data::GameEntry> {
+    fetch_account_owned_games_internal(steam_id, proxy_url, true).await
+}
+
 pub async fn fetch_account_owned_games(
     steam_id: u64,
     proxy_url: Option<String>,
+) -> Vec<crate::data::GameEntry> {
+    fetch_account_owned_games_internal(steam_id, proxy_url, false).await
+}
+
+async fn fetch_account_owned_games_internal(
+    steam_id: u64,
+    proxy_url: Option<String>,
+    force: bool,
 ) -> Vec<crate::data::GameEntry> {
     if steam_id == 0 {
         return Vec::new();
     }
 
-    // 1. Check existing in-memory cache first
-    let cached = get_cached_owned_games(steam_id);
-    if !cached.is_empty() {
-        return cached;
+    if !force {
+        let cached = get_cached_owned_games(steam_id);
+        if !cached.is_empty() {
+            return cached;
+        }
     }
 
-    // 2. Fetch badges page (all games with badges are owned games)
-    let drops = fetch_active_drops(steam_id, proxy_url.clone()).await;
     let mut games_map: HashMap<u32, String> = HashMap::new();
 
-    for d in drops {
-        games_map.insert(d.app_id, d.name);
-    }
-
-    // 3. Query Steam Community user profile games or XML if public
-    let client = build_http_client(proxy_url);
-    let xml_url = format!("https://steamcommunity.com/profiles/{}/games/?tab=all&xml=1", steam_id);
-    if let Ok(resp) = client.get(&xml_url).send().await {
-        if let Ok(body) = resp.text().await {
-            // Parse <game><appID>...</appID><name>...</name></game>
-            for block in body.split("<game>") {
-                if let (Some(id_start), Some(name_start)) = (block.find("<appID>"), block.find("<name>")) {
-                    let id_str = block[id_start + 7..].split("</appID>").next().unwrap_or("");
-                    let name_str = block[name_start + 6..].split("</name>").next().unwrap_or("");
-                    if let Ok(appid) = id_str.trim().parse::<u32>() {
-                        let clean_name = name_str
-                            .trim()
-                            .replace("<![CDATA[", "")
-                            .replace("]]>", "")
-                            .trim()
-                            .to_string();
-                        if !clean_name.is_empty() {
-                            games_map.entry(appid).or_insert(clean_name);
-                        }
-                    }
+    // 1. Check runtime accounts
+    let container = crate::telegram::get_runtime_accounts();
+    for arc in container {
+        if let Ok(a) = arc.lock() {
+            if (a.steam_id == steam_id || a.steam_id == 0) && !a.owned_games.is_empty() {
+                for g in &a.owned_games {
+                    games_map.insert(g.app_id, g.name.clone());
                 }
             }
         }
     }
+
+    // 2. Fetch badges pages (p=1 to 4)
+    let client = build_http_client(proxy_url.clone());
+    for page in 1..=4 {
+        let url = format!("https://steamcommunity.com/profiles/{}/badges/?p={}", steam_id, page);
+        if let Ok(resp) = client.get(&url)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+            .send()
+            .await 
+        {
+            if let Ok(html) = resp.text().await {
+                let rows: Vec<&str> = html.split("badge_row ").collect();
+                if rows.len() <= 1 {
+                    break;
+                }
+                let mut found_page = false;
+                for r in &rows[1..] {
+                    if let Some(pos) = r.find("/gamecards/") {
+                        let sub = &r[pos + 11..];
+                        if let Some(slash_pos) = sub.find('/') {
+                            if let Ok(appid) = sub[..slash_pos].parse::<u32>() {
+                                if let Some(t_idx) = r.find("badge_title\">") {
+                                    let sub_title = &r[t_idx + 13..];
+                                    if let Some(end_idx) = sub_title.find("</div>") {
+                                        let raw_name = sub_title[..end_idx]
+                                            .split("&nbsp;")
+                                            .next()
+                                            .unwrap_or("")
+                                            .replace("&amp;", "&")
+                                            .replace("&quot;", "\"")
+                                            .replace("&#39;", "'")
+                                            .trim()
+                                            .to_string();
+                                        if !raw_name.is_empty() && !raw_name.contains("badge_view_details") {
+                                            games_map.entry(appid).or_insert(raw_name);
+                                            found_page = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if !found_page {
+                    break;
+                }
+            }
+        }
+    }
+
+    // 3. Include games from inventory items
+    let inv_items = get_cached_detailed_inventory(steam_id);
+    for item in inv_items {
+        if item.app_id > 0 && !item.game_name.is_empty() && item.game_name != "Steam" {
+            games_map.entry(item.app_id).or_insert(item.game_name);
+        }
+    }
+
+    // 4. Fallback essentials
+    games_map.entry(730).or_insert_with(|| "Counter-Strike 2".to_string());
+    games_map.entry(440).or_insert_with(|| "Team Fortress 2".to_string());
+    games_map.entry(570).or_insert_with(|| "Dota 2".to_string());
 
     let mut result: Vec<crate::data::GameEntry> = games_map
         .into_iter()
@@ -893,10 +1068,6 @@ pub async fn fetch_account_owned_games(
         .collect();
 
     result.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-
-    if !result.is_empty() {
-        store_owned_games_cache(steam_id, result.clone());
-    }
-
+    store_owned_games_cache(steam_id, result.clone());
     result
 }

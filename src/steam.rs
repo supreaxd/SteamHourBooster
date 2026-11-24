@@ -81,6 +81,7 @@ fn replace_case_insensitive(haystack: &str, needle: &str, replacement: &str) -> 
 fn format_dynamic_title(template: &str, hours: f64, games_count: usize) -> String {
     let now = Local::now();
     let hours_str = format!("{:.1}", hours);
+    let hours_h_str = format!("{:.1}h", hours);
     let hours_int = format!("{}", hours as u64);
     let games_str = format!("{}", games_count);
     let time_str = now.format("%H:%M").to_string();
@@ -88,13 +89,28 @@ fn format_dynamic_title(template: &str, hours: f64, games_count: usize) -> Strin
 
     let mut result = template.to_string();
 
+    // First handle tags with trailing 'h' or 'H' to avoid 'hh'
+    for tag in &["(hours)h", "(hours)H", "{hours}h", "{hours}H", "[hours]h", "[hours]H",
+                 "(hour)h", "(hour)H", "{hour}h", "{hour}H", "[hour]h", "[hour]H",
+                 "(saat)h", "(saat)H", "{saat}h", "{saat}H"] {
+        result = replace_case_insensitive(&result, tag, &hours_h_str);
+    }
+
     let tokens = [
-        ("hours", &hours_str),
+        ("hours", &hours_h_str),
+        ("hour", &hours_h_str),
+        ("hours_num", &hours_str),
         ("hours_int", &hours_int),
+        ("saat", &hours_h_str),
         ("games", &games_str),
+        ("game", &games_str),
         ("games_count", &games_str),
+        ("oyun", &games_str),
         ("time", &time_str),
+        ("clock", &time_str),
+        ("zaman", &time_str),
         ("date", &date_str),
+        ("tarih", &date_str),
     ];
 
     for (k, v) in &tokens {
@@ -422,15 +438,21 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
             if let Err(e) = connection.send(games_msg.clone()).await {
                 logger::log_error(&format!("[{}] Failed to send games played packet: {}", username, e));
             } else {
+                let dyn_title = format_dynamic_title(current_title.trim(), hours_now, current_games.len());
+                let title_info = if !dyn_title.is_empty() {
+                    format!(". Custom Title: '{}'", dyn_title)
+                } else {
+                    String::new()
+                };
                 logger::log_info(&format!(
-                    "[{}] Games played packet sent ({} games active). Custom Title: '{}'",
-                    username, current_games.len(), current_title
+                    "[{}] Games played packet sent ({} games active){}",
+                    username, current_games.len(), title_info
                 ));
                 debug_log::log_packet(
                     &username,
                     PacketDirection::Outbound,
                     "CMsgClientGamesPlayed",
-                    &format!("{} games | Title: '{}'", current_games.len(), current_title),
+                    &format!("{} games | Title: '{}'", current_games.len(), dyn_title),
                     PacketCategory::Presence,
                 );
             }
@@ -564,8 +586,17 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
                                 current_title = custom_title;
                                 current_persona = persona_state;
                                 current_afk_custom = afk_reply_custom;
-                                logger::log_info(&format!("[{}] Live settings updated (Hot-Reload). Sending presence to Steam...", username));
                                 let hours = { acc_for_task.lock().unwrap().hours_boosted };
+                                let dyn_title = format_dynamic_title(current_title.trim(), hours, current_games.len());
+                                let title_info = if !dyn_title.is_empty() {
+                                    format!(" | Custom Title: '{}'", dyn_title)
+                                } else {
+                                    String::new()
+                                };
+                                logger::log_info(&format!(
+                                    "[{}] Live settings updated (Hot-Reload): {} games, {:.1}h{}. Sending presence to Steam...",
+                                    username, current_games.len(), hours, title_info
+                                ));
                                 let (s_msg, g_msg) = build_presence(&current_games, &current_title, current_persona, hours);
                                 status_msg = s_msg;
                                 games_msg = g_msg;

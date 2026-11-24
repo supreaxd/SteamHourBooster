@@ -17,6 +17,7 @@ pub struct AccountsView {
     pub custom_appname_input: String,
     pub owned_games_filter: String,
     pub is_refreshing_owned_games: Arc<std::sync::atomic::AtomicBool>,
+    pub refreshed_owned_games: Arc<Mutex<Option<(u64, Vec<GameEntry>)>>>,
 }
 
 impl AccountsView {
@@ -33,6 +34,7 @@ impl AccountsView {
             custom_appname_input: String::new(),
             owned_games_filter: String::new(),
             is_refreshing_owned_games: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            refreshed_owned_games: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -40,14 +42,15 @@ impl AccountsView {
         &mut self,
         ui: &mut Ui,
         accounts: &mut Vec<Account>,
-        runtime_accounts: &[Arc<Mutex<Account>>],
+        runtime_accounts: &mut Vec<Arc<Mutex<Account>>>,
         colors: &CustomThemeColors,
         theme_mode: ThemeMode,
         strings: &Strings,
         next_id: &mut u64,
         show_qr_modal: &mut bool,
-    ) {
+    ) -> bool {
         let accent = Color32::from_rgb(colors.accent[0], colors.accent[1], colors.accent[2]);
+        let mut save_needed = false;
 
         // If currently in add/edit mode, show the account editor form
         if let Some(mut acc) = self.editing_account.take() {
@@ -62,7 +65,7 @@ impl AccountsView {
                 });
                 ui.add_space(8.0);
 
-                ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                ScrollArea::vertical().id_salt("edit_account_main_scroll").auto_shrink([false, false]).show(ui, |ui| {
                     ui.columns(2, |cols| {
                         // Left column: Credentials & Persona
                         cols[0].vertical(|ui| {
@@ -129,11 +132,20 @@ impl AccountsView {
                     ui.add_space(6.0);
 
                     // ─── GAMES TO BOOST FOR THIS ACCOUNT (Vertical rows - Alt Alta, never overflows) ───
-                    ui.label(RichText::new(format!("🎮 Boosting Games ({})", acc.games.len())).font(FontId::proportional(13.5)).strong());
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(format!("🎮 Boosting Games ({})", acc.games.len())).font(FontId::proportional(13.5)).strong());
+                        if !acc.games.is_empty() {
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui.button(RichText::new("✕ Clear All").font(FontId::proportional(11.0)).color(Color32::from_rgb(255, 110, 110))).clicked() {
+                                    acc.games.clear();
+                                }
+                            });
+                        }
+                    });
                     ui.add_space(4.0);
 
                     if acc.games.is_empty() {
-                        ui.label(RichText::new("No games added yet. Use store search or manual AppID below to add games.").font(FontId::proportional(11.5)).color(Color32::from_rgb(130, 150, 175)));
+                        ui.label(RichText::new("No games added yet. Use store search, manual AppID, or the library list below.").font(FontId::proportional(11.5)).color(Color32::from_rgb(130, 150, 175)));
                     } else {
                         egui::Frame::none()
                             .fill(Color32::from_rgba_unmultiplied(12, 16, 24, 180))
@@ -141,7 +153,12 @@ impl AccountsView {
                             .stroke(Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 20)))
                             .inner_margin(egui::Margin::symmetric(8.0, 6.0))
                             .show(ui, |ui| {
-                                ScrollArea::vertical().max_height(160.0).auto_shrink([false, false]).show(ui, |ui| {
+                                ScrollArea::vertical()
+                                    .id_salt("boosting_games_box_scroll")
+                                    .max_height(130.0)
+                                    .auto_shrink([false, false])
+                                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
+                                    .show(ui, |ui| {
                                     let mut to_remove_idx: Option<usize> = None;
                                     for (idx, g) in acc.games.iter().enumerate() {
                                         ui.horizontal(|ui| {
@@ -239,7 +256,7 @@ impl AccountsView {
 
                             let results = self.store_search_results.lock().unwrap().clone();
                             if !results.is_empty() {
-                                ScrollArea::vertical().max_height(140.0).show(ui, |ui| {
+                                ScrollArea::vertical().id_salt("store_search_results_scroll").max_height(140.0).show(ui, |ui| {
                                     for (app_id, name) in results.iter().take(12) {
                                         let is_already_added = acc.games.iter().any(|g| g.app_id == *app_id);
                                         let img_url = format!("https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{}/capsule_231x87.jpg", app_id);
@@ -291,11 +308,30 @@ impl AccountsView {
                     ui.add_space(6.0);
 
                     // ─── ACCOUNT OWNED GAMES (LIBRARY) ───
-                    // Automatically load from cache if acc.owned_games is empty but cache has them
-                    if acc.owned_games.is_empty() && acc.steam_id > 0 {
+                    // Apply any background refreshed games
+                    if let Ok(mut slot) = self.refreshed_owned_games.lock() {
+                        if let Some((s_id, fresh)) = slot.take() {
+                            if acc.steam_id == s_id || acc.steam_id == 0 {
+                                acc.owned_games = fresh;
+                            }
+                        }
+                    }
+
+                    // Automatically load from cache or active runtime if acc.owned_games is empty
+                    if acc.owned_games.is_empty() {
                         let cached = crate::inventory::get_cached_owned_games(acc.steam_id);
                         if !cached.is_empty() {
                             acc.owned_games = cached;
+                        } else {
+                            for ra in runtime_accounts.iter() {
+                                if let Ok(l) = ra.lock() {
+                                    if (l.id == acc.id || (acc.steam_id > 0 && l.steam_id == acc.steam_id)) && !l.owned_games.is_empty() {
+                                        acc.owned_games = l.owned_games.clone();
+                                        crate::inventory::store_owned_games_cache(acc.steam_id, acc.owned_games.clone());
+                                        break;
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -313,12 +349,30 @@ impl AccountsView {
                                     let s_id = acc.steam_id;
                                     let p_url = acc.proxy.clone();
                                     let flag = self.is_refreshing_owned_games.clone();
+                                    let slot_clone = self.refreshed_owned_games.clone();
+                                    let ctx_clone = ui.ctx().clone();
                                     flag.store(true, std::sync::atomic::Ordering::Relaxed);
                                     crate::steam::get_runtime().spawn(async move {
-                                        let fresh_games = crate::inventory::fetch_account_owned_games(s_id, p_url).await;
-                                        crate::inventory::store_owned_games_cache(s_id, fresh_games);
+                                        let fresh_games = crate::inventory::fetch_account_owned_games_force(s_id, p_url).await;
+                                        crate::inventory::store_owned_games_cache(s_id, fresh_games.clone());
+                                        if let Ok(mut l) = slot_clone.lock() {
+                                            *l = Some((s_id, fresh_games));
+                                        }
                                         flag.store(false, std::sync::atomic::Ordering::Relaxed);
+                                        ctx_clone.request_repaint();
                                     });
+                                }
+
+                                ui.add_space(4.0);
+                                if ui.button(RichText::new("＋ Add All to Boost").font(FontId::proportional(11.5)).color(Color32::from_rgb(90, 220, 140)).strong()).clicked() {
+                                    let filter = self.owned_games_filter.trim().to_lowercase();
+                                    for g in &acc.owned_games {
+                                        if (filter.is_empty() || g.name.to_lowercase().contains(&filter) || g.app_id.to_string().contains(&filter))
+                                            && !acc.games.iter().any(|existing| existing.app_id == g.app_id)
+                                        {
+                                            acc.games.push(g.clone());
+                                        }
+                                    }
                                 }
                             }
                         });
@@ -364,11 +418,16 @@ impl AccountsView {
                             .stroke(Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 12)))
                             .inner_margin(egui::Margin::symmetric(8.0, 6.0))
                             .show(ui, |ui| {
-                                ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
+                                ScrollArea::vertical()
+                                    .id_salt("owned_games_library_scroll")
+                                    .max_height(240.0)
+                                    .auto_shrink([false, false])
+                                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
+                                    .show(ui, |ui| {
                                     let mut to_add_game: Option<GameEntry> = None;
                                     let mut to_remove_id: Option<u32> = None;
 
-                                    for game in filtered_games.iter().take(80) {
+                                    for game in filtered_games.iter().take(300) {
                                         let is_in_boost = acc.games.iter().any(|g| g.app_id == game.app_id);
                                         let img_url = format!("https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{}/capsule_231x87.jpg", game.app_id);
 
@@ -428,21 +487,27 @@ impl AccountsView {
                     acc.id = *next_id;
                     *next_id += 1;
                     accounts.push(acc.clone());
+                    let new_arc = Arc::new(Mutex::new(acc.clone()));
+                    runtime_accounts.push(new_arc);
+                    crate::telegram::update_accounts_for_bot(runtime_accounts);
                 } else {
                     if let Some(pos) = accounts.iter().position(|a| a.id == acc.id) {
                         accounts[pos] = acc.clone();
                     }
-                }
-
-                // Update runtime account if currently loaded
-                for r in runtime_accounts {
-                    let mut lock = r.lock().unwrap();
-                    if lock.id == saved_id {
-                        lock.games = saved_games.clone();
-                        lock.custom_title = saved_title.clone();
-                        lock.persona_state = saved_persona;
-                        lock.afk_reply_custom = saved_afk.clone();
-                        lock.username = acc.username.clone();
+                    // Update runtime account if currently loaded
+                    for r in runtime_accounts.iter() {
+                        let mut lock = r.lock().unwrap();
+                        if lock.id == saved_id {
+                            lock.games = saved_games.clone();
+                            lock.custom_title = saved_title.clone();
+                            lock.persona_state = saved_persona;
+                            lock.afk_reply_custom = saved_afk.clone();
+                            lock.username = acc.username.clone();
+                            lock.password = acc.password.clone();
+                            lock.shared_secret = acc.shared_secret.clone();
+                            lock.identity_secret = acc.identity_secret.clone();
+                            lock.proxy = acc.proxy.clone();
+                        }
                     }
                 }
 
@@ -451,6 +516,7 @@ impl AccountsView {
 
                 self.editing_account = None;
                 self.is_adding_new = false;
+                save_needed = true;
             } else if cancel_edit {
                 self.editing_account = None;
                 self.is_adding_new = false;
@@ -458,7 +524,7 @@ impl AccountsView {
                 self.editing_account = Some(acc);
             }
 
-            return;
+            return save_needed;
         }
 
         // ─── TOP ACTION BAR ───
@@ -476,14 +542,14 @@ impl AccountsView {
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button(RichText::new(strings.btn_stop_all).font(FontId::proportional(12.0)).color(Color32::from_rgb(255, 120, 120))).clicked() {
-                        for arc in runtime_accounts {
+                        for arc in runtime_accounts.iter() {
                             let id = arc.lock().unwrap().id;
                             crate::steam::stop_boost(id, arc.clone());
                         }
                     }
 
                     if ui.button(RichText::new(strings.btn_start_all).font(FontId::proportional(12.0)).color(Color32::from_rgb(90, 215, 120))).clicked() {
-                        for arc in runtime_accounts {
+                        for arc in runtime_accounts.iter() {
                             crate::steam::start_boost(arc.clone());
                         }
                     }
@@ -503,13 +569,13 @@ impl AccountsView {
                     ui.add_space(24.0);
                 });
             });
-            return;
+            return save_needed;
         }
 
         let mut to_delete_id: Option<u64> = None;
         let mut to_edit_acc: Option<Account> = None;
 
-        ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        ScrollArea::vertical().id_salt("accounts_list_scroll").auto_shrink([false, false]).show(ui, |ui| {
             for acc in accounts.iter() {
                 // Find matching runtime account status
                 let runtime_arc = runtime_accounts.iter().find(|ra| ra.lock().unwrap().id == acc.id).cloned();
@@ -603,14 +669,22 @@ impl AccountsView {
         });
 
         if let Some(del_id) = to_delete_id {
+            if let Some(pos) = runtime_accounts.iter().position(|r| r.lock().unwrap().id == del_id) {
+                let arc = runtime_accounts.remove(pos);
+                crate::steam::stop_boost(del_id, arc);
+                crate::telegram::update_accounts_for_bot(runtime_accounts);
+            }
             if let Some(pos) = accounts.iter().position(|a| a.id == del_id) {
                 accounts.remove(pos);
             }
+            save_needed = true;
         }
 
         if let Some(edit_acc) = to_edit_acc {
             self.editing_account = Some(edit_acc);
             self.is_adding_new = false;
         }
+
+        save_needed
     }
 }

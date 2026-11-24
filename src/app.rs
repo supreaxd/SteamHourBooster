@@ -460,16 +460,19 @@ impl eframe::App for SteamBoosterApp {
                     );
                 }
                 NavTab::Accounts => {
-                    self.accounts_view.draw(
+                    let save_needed = self.accounts_view.draw(
                         ui,
                         &mut self.config.accounts,
-                        &self.runtime_accounts,
+                        &mut self.runtime_accounts,
                         &self.config.settings.custom_colors,
                         self.config.settings.theme_mode,
                         &strings,
                         &mut self.next_id,
                         &mut self.show_qr_modal,
                     );
+                    if save_needed {
+                        self.config.save();
+                    }
                 }
                 NavTab::Telegram => {
                     self.telegram_view.draw(

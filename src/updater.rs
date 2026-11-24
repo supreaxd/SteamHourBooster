@@ -407,7 +407,7 @@ pub fn apply_update_and_restart(temp_path: &std::path::Path) -> Result<(), Strin
 
     // 2. Windows allows renaming a running executable!
     std::fs::rename(&current_exe, &old_backup)
-        .map_err(|e| format!("Mevcut uygulama yedeklenemedi (.old): {}", e))?;
+        .map_err(|e| format!("Failed to backup current executable (.old): {}", e))?;
 
     // 3. Move newly downloaded executable to current_exe
     if let Err(e) = std::fs::rename(temp_path, &current_exe) {
