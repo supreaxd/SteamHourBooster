@@ -229,7 +229,27 @@ impl ModalManager {
 
         let accent = Color32::from_rgb(colors.accent[0], colors.accent[1], colors.accent[2]);
 
-        egui::Window::new("📋 Release Changelogs (v1.0.0)")
+        let state = updater.state.lock().unwrap().clone();
+        let has_update = matches!(state, UpdateState::UpdateAvailable { .. });
+        let current_ver = env!("CARGO_PKG_VERSION");
+
+        let (window_title, header_text, sub_date) = match &state {
+            UpdateState::UpdateAvailable { version, release_title, published_at, .. } => {
+                let date_str = if published_at.len() >= 10 { &published_at[..10] } else { "Recent" };
+                (
+                    format!("🚀 New Version Changelogs (v{})", version),
+                    release_title.clone(),
+                    format!("Published: {}", date_str),
+                )
+            }
+            _ => (
+                format!("📋 Release Changelogs (v{})", current_ver),
+                format!("SupBooster Official Release v{}", current_ver),
+                "Current Version".to_string(),
+            ),
+        };
+
+        egui::Window::new(window_title)
             .collapsible(false)
             .resizable(false)
             .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
@@ -238,8 +258,8 @@ impl ModalManager {
                 ui.add_space(4.0);
 
                 ui.vertical(|ui| {
-                    ui.label(RichText::new("🚀 SupBooster Official Release v1.0.0").font(FontId::proportional(16.0)).strong().color(accent));
-                    ui.label(RichText::new("Published: November 2026").font(FontId::proportional(11.0)).color(Color32::from_rgb(130, 150, 175)));
+                    ui.label(RichText::new(&header_text).font(FontId::proportional(16.0)).strong().color(accent));
+                    ui.label(RichText::new(&sub_date).font(FontId::proportional(11.0)).color(Color32::from_rgb(130, 150, 175)));
                 });
 
                 ui.add_space(8.0);
@@ -256,9 +276,10 @@ impl ModalManager {
                     "• Clean Modal Display: Eliminated heavy black background darkening; modals now blend smoothly with desktop themes.",
                     "• Steam Profile Pictures & GIF Support: Live Steam avatar CDN integration in the top status bar with animated GIF avatar support.",
                     "• Real-Time Game Autocomplete: Instantly searches and auto-completes game names (e.g. 'Counter-Strike') as you type in Store Search.",
-                    "• Single Sidebar Icons: Fixed duplicate icons on navigation tabs (Dashboard, Active Drops, Inventory, Accounts, Telegram, Settings).",
-                    "• Vertical Game Stacking: All boosting games and accounts are stacked vertically with smooth scrolling and zero horizontal overflow.",
-                    "• Rate-Limiting & Proxy Fallback: Automatic direct connection failover if local proxies are offline, plus dynamic 75-item inventory chunking.",
+                    "• Orange Restart All: Added prominent orange Restart All button next to Stop All in top header.",
+                    "• Light Theme Black Text Fix: High-contrast dark text guarantee in Light Mode, preventing invisible text issues.",
+                    "• Single Sidebar Icons: Clean navigation tab icons without duplication.",
+                    "• Automated Update Notifications: Prominent new version changelog pill displayed directly above sidebar Changelogs link with instant one-click updating.",
                 ];
 
                 for b in &bullets {
@@ -269,9 +290,6 @@ impl ModalManager {
                 ui.add_space(10.0);
                 ui.separator();
                 ui.add_space(8.0);
-
-                let state = updater.state.lock().unwrap().clone();
-                let has_update = matches!(state, UpdateState::UpdateAvailable { .. });
 
                 if self.show_quota_warning {
                     egui::Frame::none()

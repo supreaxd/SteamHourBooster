@@ -511,21 +511,21 @@ impl AppConfig {
             settings: self.settings.clone(),
         };
 
-        // Eğer DPAPI şifreleme aktifse hassas alanları şifrele
-        if self.settings.encrypt_credentials {
-            for acc in &mut to_save.accounts {
-                if !acc.password.is_empty() {
-                    acc.password = encrypt_string(&acc.password);
-                }
-                if let Some(ref t) = acc.refresh_token {
-                    acc.refresh_token = Some(encrypt_string(t));
-                }
-                if let Some(ref s) = acc.shared_secret {
-                    acc.shared_secret = Some(encrypt_string(s));
-                }
-                if let Some(ref s) = acc.identity_secret {
-                    acc.identity_secret = Some(encrypt_string(s));
-                }
+        to_save.settings.encrypt_credentials = true;
+
+        // Windows DPAPI şifreleme her zaman aktif ve zorunlu
+        for acc in &mut to_save.accounts {
+            if !acc.password.is_empty() {
+                acc.password = encrypt_string(&acc.password);
+            }
+            if let Some(ref t) = acc.refresh_token {
+                acc.refresh_token = Some(encrypt_string(t));
+            }
+            if let Some(ref s) = acc.shared_secret {
+                acc.shared_secret = Some(encrypt_string(s));
+            }
+            if let Some(ref s) = acc.identity_secret {
+                acc.identity_secret = Some(encrypt_string(s));
             }
         }
 

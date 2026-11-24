@@ -1,45 +1,41 @@
-# 🚀 SupBooster v1.0.0 (Official Major Release)
+# 🚀 SupBooster v1.1.0 (Official Release)
 
-Welcome to the **v1.0.0** milestone of **SupBooster** (`SupBoost.exe`)! This release brings significant architectural upgrades, full Steam Community Market integration, mobile authenticator alert handling, live Steam avatar integration with animated GIF support, store search autocomplete, and extensive UI/UX polish.
-
----
-
-### 🛒 1. Authentic Steam Community Market Bulk Selling & 2FA Flow
-- **Real Session Generation:** Authenticates real Steam Web Sessions directly from saved QR refresh tokens using Valve's official `/jwt/finalizelogin` and `/login/settoken` protocol.
-- **Real Market Listing:** Dispatches actual `POST /market/sellitem/` requests with session cookies, asset IDs, and exact net pricing calculations.
-- **Steam Guard Mobile Confirmation Alert:** If Steam requires mobile confirmation, SupBooster displays a prominent, unmistakable alert informing you that the confirmation request was dispatched to your phone's Steam Mobile Authenticator.
-- **Auto-Cleanup:** Sold items are automatically removed from active selections and updated immediately.
+Welcome to **v1.1.0** of **SupBooster** (`SupBoost.exe`)! This release introduces dynamic non-Steam game title auto-replacements (`(hours)`, `(games)`, `(time)`, `(date)`), periodic 10-minute title auto-refresh, instant live hot-reload on account edits, permanent Windows DPAPI hardware encryption, instant Steam QR code login generation, and GitHub Atom feed & redirect fallback for update checking.
 
 ---
 
-### 🎨 2. Enhanced Themes & Contrast Guarantee
-- **Light Theme Contrast Fix:** Selecting **Light Mode** automatically sets default text to high-contrast dark/black (`[25, 30, 36]`) with light panel surfaces, completely resolving any invisible text issues. Users can still customize colors freely.
-- **Clean Modal Presentation:** Completely removed the heavy black screen dimming overlay. Confirmation modals and changelogs now blend seamlessly over your workspace.
-- **Hardware Acrylic & Blur Vibrancy:** Windows 10 & 11 `window-vibrancy` support with customizable RGB tint, text, and accent color pickers.
+### 🎮 1. Dynamic Steam Non-Steam Game Titles & Auto-Refresh
+- **Dynamic Variable Tags:** Use `(hours)` or `{hours}` to display real-time boosted hours (e.g. `14.2h`), `(games)` or `{games}` to display the number of active games (e.g. `14`), and `(time)` for current time (HH:MM).
+- **10-Minute Auto-Refresh:** Non-Steam game presence automatically re-evaluates and syncs to Steam every 10 minutes so hours and clock times stay accurate in friends lists.
+- **Instant Hot-Reload:** Editing an account's custom status/title or game list instantly updates the running boosting session without having to restart boosting.
 
 ---
 
-### 👤 3. Steam Profile Pictures (PFP) & Animated GIFs
-- **Live Steam Avatars in Top Bar:** All currently boosting accounts display their actual Steam profile pictures directly in the top status bar.
-- **Full GIF Support:** Powered by `egui_extras` image loaders, animated Steam avatars and frames animate smoothly in real time.
-- **Boosting Indicators:** Accounts feature glowing status indicators and real-time game counts.
+### 📱 2. Steam Mobile QR Code Login Fixed
+- **Instant QR Generation:** Resolved the issue where QR codes did not load or spin indefinitely. QR authentication sessions now initialize immediately upon opening the modal.
+- **Live Polling & Token Storing:** Seamless scanning with Steam Mobile App and automatic DPAPI credential encryption.
 
 ---
 
-### 🔍 4. Real-Time Store Search Autocomplete
-- **Type-Ahead Discovery:** Typing in the "Search Steam Store" input (e.g. *counter*, *rust*, *witcher*) automatically queries Steam and displays matches with capsule thumbnails, title, and AppID without needing to click search.
-- **One-Click Add:** Quickly add discovered games directly to your account's boosting library.
+### 🔒 3. Permanent Windows DPAPI Hardware Security
+- **Enforced Security:** Windows DPAPI hardware encryption is now permanently enabled across all accounts and tokens without requiring manual checkboxes.
 
 ---
 
-### ⚡ 5. Control Polish & Controls
-- **Orange "Restart All" Button:** Added a prominent `🔄 Restart All` button alongside `⏹ Stop All` in the top header, allowing you to restart active boost sessions with a single click.
-- **Single Navigation Tab Icons:** Fixed duplicated emoji icons across sidebar tabs (Dashboard, Active Drops, Inventory, Accounts, Telegram, Settings).
-- **Responsive Vertical Layouts:** All game chips now stack cleanly in vertical cards with responsive scrolling, preventing any horizontal overflow.
-- **Network Resilience:** Automatic failover to direct connections if a configured SOCKS5 proxy is unreachable, plus dynamic 75-item inventory chunking to eliminate Steam HTTP 429 rate limit errors.
+### 🚀 4. Seamless Update System & Sidebar Changelogs
+- **Prominent Update Indicator:** When a new version is published, an orange `🚀 Changelogs (v1.1.0)` pill appears directly ABOVE the sidebar's `Changelogs` link.
+- **Unmetered Atom & Redirect Fallback:** Update checks utilize GitHub's Atom feed and redirect mechanisms to bypass strict unauthenticated GitHub REST API rate limits (HTTP 429/403).
+
+---
+
+### 🎨 5. Controls & Theme Polish
+- **Orange Restart All:** Easily restart all accounts with the dedicated top-header button.
+- **Light Theme Contrast Guarantee:** Default dark text ensures perfect visibility when switching to Light theme.
+- **Clean Modals:** Removed screen dimming for modern translucent window overlay.
 
 ---
 
 ### 📦 Binary Assets
 - `SupBoost.exe`
-- `SupBoost.v1.0.0.exe`
+- `SupBoost.v1.1.0.exe`
+- `SteamBooster.exe`

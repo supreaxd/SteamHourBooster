@@ -71,7 +71,8 @@ impl AccountsView {
                             ui.add_space(4.0);
 
                             ui.label(RichText::new("Custom Status / Game Title:").font(FontId::proportional(12.0)));
-                            ui.add(egui::TextEdit::singleline(&mut acc.custom_title).hint_text("Half-Life 3 (Beta)").desired_width(f32::INFINITY));
+                            ui.add(egui::TextEdit::singleline(&mut acc.custom_title).hint_text("Half-Life 3 (Beta) | (hours)h (games) games").desired_width(f32::INFINITY));
+                            ui.label(RichText::new("💡 Auto tags: (hours) for hours, (games) for count, (time) for HH:MM. Refreshes every 10 min.").font(FontId::proportional(10.5)).color(Color32::from_rgb(120, 160, 210)));
                             ui.add_space(4.0);
 
                             ui.label(RichText::new("Steam Persona State:").font(FontId::proportional(12.0)));
@@ -296,15 +297,37 @@ impl AccountsView {
             });
 
             if save_account {
+                let saved_id = acc.id;
+                let saved_games = acc.games.clone();
+                let saved_title = acc.custom_title.clone();
+                let saved_persona = acc.persona_state;
+                let saved_afk = acc.afk_reply_custom.clone();
+
                 if is_new {
                     acc.id = *next_id;
                     *next_id += 1;
-                    accounts.push(acc);
+                    accounts.push(acc.clone());
                 } else {
                     if let Some(pos) = accounts.iter().position(|a| a.id == acc.id) {
-                        accounts[pos] = acc;
+                        accounts[pos] = acc.clone();
                     }
                 }
+
+                // Update runtime account if currently loaded
+                for r in runtime_accounts {
+                    let mut lock = r.lock().unwrap();
+                    if lock.id == saved_id {
+                        lock.games = saved_games.clone();
+                        lock.custom_title = saved_title.clone();
+                        lock.persona_state = saved_persona;
+                        lock.afk_reply_custom = saved_afk.clone();
+                        lock.username = acc.username.clone();
+                    }
+                }
+
+                // Hot-reload presence for active boosting session
+                crate::steam::update_presence(saved_id, saved_games, saved_title, saved_persona, saved_afk);
+
                 self.editing_account = None;
                 self.is_adding_new = false;
             } else if cancel_edit {

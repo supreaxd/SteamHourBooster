@@ -1,4 +1,4 @@
-use eframe::egui::{self, Color32, FontId, Pos2, Rect, Response, RichText, Rounding, Sense, Ui, Vec2};
+use eframe::egui::{self, Color32, FontId, Pos2, Rect, Response, RichText, Rounding, Sense, Stroke, Ui, Vec2};
 use crate::data::CustomThemeColors;
 use crate::i18n::Strings;
 use crate::updater::{UpdateManager, UpdateState};
@@ -52,41 +52,93 @@ impl Sidebar {
 
             // Push the rest of the content to the bottom
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-                ui.add_space(10.0);
+                ui.add_space(8.0);
 
-                // Small, non-intrusive Changelogs indicator at the very bottom
                 let update_state = updater.state.lock().unwrap().clone();
-                let has_update = matches!(update_state, UpdateState::UpdateAvailable { .. });
 
+                // 1. Regular Changelogs link at the very bottom
                 ui.horizontal(|ui| {
                     ui.add_space(12.0);
+                    let (rect, _) = ui.allocate_exact_size(Vec2::splat(8.0), Sense::hover());
+                    ui.painter().circle_filled(rect.center(), 3.5, Color32::from_rgb(70, 85, 105));
+                    ui.add_space(4.0);
 
-                    // Indicator badge/dot
-                    if has_update {
-                        let (rect, _) = ui.allocate_exact_size(Vec2::splat(8.0), Sense::hover());
-                        ui.painter().circle_filled(rect.center(), 4.0, Color32::from_rgb(255, 175, 50));
-                        ui.add_space(4.0);
-                    } else {
-                        let (rect, _) = ui.allocate_exact_size(Vec2::splat(8.0), Sense::hover());
-                        ui.painter().circle_filled(rect.center(), 3.5, Color32::from_rgb(70, 85, 105));
-                        ui.add_space(4.0);
-                    }
-
-                    // Clickable changelogs link
                     let changelog_btn = ui.link(
-                        RichText::new(strings.changelogs_text)
+                        RichText::new("Changelogs")
                             .font(FontId::proportional(11.5))
-                            .color(if has_update {
-                                Color32::from_rgb(255, 190, 70)
-                            } else {
-                                Color32::from_rgb(120, 140, 165)
-                            }),
+                            .color(Color32::from_rgb(130, 145, 170)),
                     );
 
                     if changelog_btn.clicked() {
                         *show_changelogs = true;
                     }
                 });
+
+                ui.add_space(3.0);
+
+                // 2. If a new version exists, display it directly ABOVE the "Changelogs" text!
+                match &update_state {
+                    UpdateState::UpdateAvailable { version, .. } => {
+                        ui.horizontal(|ui| {
+                            ui.add_space(8.0);
+                            let new_ver_label = format!("🚀 Changelogs (v{})", version);
+                            let update_frame = egui::Frame::none()
+                                .fill(Color32::from_rgba_unmultiplied(255, 155, 30, 32))
+                                .rounding(Rounding::same(6.0))
+                                .stroke(Stroke::new(1.0_f32, Color32::from_rgb(255, 165, 30)))
+                                .inner_margin(egui::Margin::symmetric(8.0, 3.5))
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        let (dot_rect, _) = ui.allocate_exact_size(Vec2::splat(7.0), Sense::hover());
+                                        ui.painter().circle_filled(dot_rect.center(), 3.5, Color32::from_rgb(255, 165, 30));
+                                        ui.add_space(2.0);
+                                        ui.label(RichText::new(new_ver_label).font(FontId::proportional(11.5)).strong().color(Color32::from_rgb(255, 185, 50)))
+                                    })
+                                });
+
+                            if update_frame.response.interact(Sense::click()).clicked() {
+                                *show_changelogs = true;
+                            }
+                        });
+                        ui.add_space(4.0);
+                    }
+                    UpdateState::Downloading { progress, .. } => {
+                        ui.horizontal(|ui| {
+                            ui.add_space(12.0);
+                            ui.spinner();
+                            ui.add_space(4.0);
+                            ui.label(RichText::new(format!("Downloading... {:.0}%", progress * 100.0)).font(FontId::proportional(11.0)).color(Color32::from_rgb(100, 195, 255)));
+                        });
+                        ui.add_space(4.0);
+                    }
+                    UpdateState::ReadyToRestart => {
+                        ui.horizontal(|ui| {
+                            ui.add_space(12.0);
+                            ui.label(RichText::new("🔄 Restarting to apply...").font(FontId::proportional(11.0)).color(Color32::from_rgb(90, 230, 140)).strong());
+                        });
+                        ui.add_space(4.0);
+                    }
+                    UpdateState::Checking => {
+                        ui.horizontal(|ui| {
+                            ui.add_space(12.0);
+                            ui.spinner();
+                            ui.add_space(4.0);
+                            ui.label(RichText::new("Checking updates...").font(FontId::proportional(10.5)).color(Color32::from_rgb(130, 150, 175)));
+                        });
+                        ui.add_space(4.0);
+                    }
+                    UpdateState::Error(_) => {
+                        ui.horizontal(|ui| {
+                            ui.add_space(12.0);
+                            let retry = ui.link(RichText::new("⚠️ Update check (Retry)").font(FontId::proportional(10.5)).color(Color32::from_rgb(255, 130, 110)));
+                            if retry.clicked() {
+                                crate::updater::check_for_updates(updater.state.clone(), "supreaxd/SteamHourBooster".to_string());
+                            }
+                        });
+                        ui.add_space(4.0);
+                    }
+                    _ => {}
+                }
 
                 ui.separator();
             });

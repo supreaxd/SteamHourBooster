@@ -63,10 +63,22 @@ fn get_workers() -> &'static Mutex<HashMap<u64, ActiveWorker>> {
     WORKERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn format_dynamic_title(template: &str, hours: f64, games_count: usize) -> String {
-    if !template.contains('{') {
-        return template.to_string();
+fn replace_case_insensitive(haystack: &str, needle: &str, replacement: &str) -> String {
+    let mut result = String::new();
+    let mut last_end = 0;
+    let lower_haystack = haystack.to_lowercase();
+    let lower_needle = needle.to_lowercase();
+
+    for (start, _) in lower_haystack.match_indices(&lower_needle) {
+        result.push_str(&haystack[last_end..start]);
+        result.push_str(replacement);
+        last_end = start + needle.len();
     }
+    result.push_str(&haystack[last_end..]);
+    result
+}
+
+fn format_dynamic_title(template: &str, hours: f64, games_count: usize) -> String {
     let now = Local::now();
     let hours_str = format!("{:.1}", hours);
     let hours_int = format!("{}", hours as u64);
@@ -74,13 +86,27 @@ fn format_dynamic_title(template: &str, hours: f64, games_count: usize) -> Strin
     let time_str = now.format("%H:%M").to_string();
     let date_str = now.format("%d.%m").to_string();
 
-    template
-        .replace("{hours}", &hours_str)
-        .replace("{hours_int}", &hours_int)
-        .replace("{games}", &games_str)
-        .replace("{games_count}", &games_str)
-        .replace("{time}", &time_str)
-        .replace("{date}", &date_str)
+    let mut result = template.to_string();
+
+    let tokens = [
+        ("hours", &hours_str),
+        ("hours_int", &hours_int),
+        ("games", &games_str),
+        ("games_count", &games_str),
+        ("time", &time_str),
+        ("date", &date_str),
+    ];
+
+    for (k, v) in &tokens {
+        // Parentheses: (hours), (games), (time), (date), etc.
+        result = replace_case_insensitive(&result, &format!("({})", k), v);
+        // Curly braces: {hours}, {games}, {time}, {date}, etc.
+        result = replace_case_insensitive(&result, &format!("{{{}}}", k), v);
+        // Square brackets: [hours], [games], [time], [date], etc.
+        result = replace_case_insensitive(&result, &format!("[{}]", k), v);
+    }
+
+    result
 }
 
 pub fn update_presence(
@@ -160,6 +186,7 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
         let mut title_rotation_index: usize = 0;
         let mut rotation_ticks: u32 = 0;
         let mut inventory_ticks: u32 = 0;
+        let mut title_refresh_ticks: u32 = 0;
 
         // Arka planda Steam Guard dinle
         let acc_guard_listener = acc_for_task.clone();
@@ -704,6 +731,14 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
                                 tokio::spawn(async move {
                                     crate::inventory::check_inventory_tracker(inv_u, my_steam_id, inv_p).await;
                                 });
+                            }
+
+                            // 10 dakikalık Başlık ve Saat/Dakika Yenilemesi (Title Auto-Refresh)
+                            title_refresh_ticks += 1;
+                            if title_refresh_ticks >= 10 {
+                                title_refresh_ticks = 0;
+                                let dyn_title = format_dynamic_title(current_title.trim(), hours, current_games.len());
+                                logger::log_info(&format!("[{}] 🔄 10-minute dynamic title refresh: \"{}\" ({:.1}h)", username, dyn_title, hours));
                             }
 
                             // Dinamik başlık paketlerini güncelle

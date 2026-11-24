@@ -92,11 +92,9 @@ impl SteamBoosterApp {
         // Cleanup old executables from previous updates
         crate::updater::cleanup_old_executable();
 
-        // Check for updates via GitHub releases
+        // Check for updates via GitHub releases on startup
         let updater = crate::updater::UpdateManager::new();
-        if config.settings.auto_check_updates {
-            crate::updater::check_for_updates(updater.state.clone(), config.settings.github_repo.clone());
-        }
+        crate::updater::check_for_updates(updater.state.clone(), config.settings.github_repo.clone());
 
         Self {
             config,
@@ -232,6 +230,10 @@ impl SteamBoosterApp {
             let st = self.qr_auth.status.lock().unwrap();
             st.clone()
         };
+
+        if matches!(status, crate::qr_auth::QrAuthStatus::Idle) {
+            self.qr_auth.start();
+        }
 
         if let crate::qr_auth::QrAuthStatus::Success { ref account_name, ref refresh_token } = status {
             success_account = Some((account_name.clone(), refresh_token.clone()));
@@ -480,6 +482,7 @@ impl eframe::App for SteamBoosterApp {
                     self.settings_view.draw(
                         ui,
                         &mut self.config.settings,
+                        &self.updater,
                         &strings,
                     );
                 }

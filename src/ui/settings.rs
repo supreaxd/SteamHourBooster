@@ -23,6 +23,7 @@ impl SettingsView {
         &mut self,
         ui: &mut Ui,
         settings: &mut AppSettings,
+        updater: &crate::updater::UpdateManager,
         _strings: &Strings,
     ) {
         let colors = settings.custom_colors.clone();
@@ -196,7 +197,10 @@ impl SettingsView {
                 ui.label(RichText::new("🛡️ Security & Smart Detection").font(FontId::proportional(14.5)).strong());
                 ui.add_space(6.0);
 
-                ui.checkbox(&mut settings.encrypt_credentials, "Encrypt passwords and 2FA tokens with Windows DPAPI");
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("🔒 Hardware Encryption:").font(FontId::proportional(12.0)));
+                    ui.label(RichText::new("Windows DPAPI Always Enforced").font(FontId::proportional(11.5)).color(Color32::from_rgb(90, 220, 130)).strong());
+                });
                 ui.add_space(4.0);
 
                 ui.checkbox(&mut settings.auto_pause_game, "Automatically pause boosting when a real Steam game is running");
@@ -238,6 +242,84 @@ impl SettingsView {
 
                         ui.label(RichText::new("End Hour:").font(FontId::proportional(11.5)));
                         ui.add(egui::Slider::new(&mut settings.scheduler_end_hour, 0..=23));
+                    });
+                }
+            });
+
+            ui.add_space(8.0);
+
+            // ─── 5. UPDATES & REPOSITORY ───
+            ThemeEngine::card_frame(theme_mode, &colors).show(ui, |ui| {
+                ui.label(RichText::new("🚀 Updates & About").font(FontId::proportional(14.5)).strong());
+                ui.add_space(6.0);
+
+                let current_ver = env!("CARGO_PKG_VERSION");
+                ui.label(RichText::new(format!("Current Version: v{}", current_ver)).font(FontId::proportional(12.0)));
+                ui.add_space(4.0);
+
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("GitHub Repository:").font(FontId::proportional(12.0)));
+                    ui.add(egui::TextEdit::singleline(&mut settings.github_repo).desired_width(220.0));
+                });
+                ui.add_space(4.0);
+
+                ui.checkbox(&mut settings.auto_check_updates, "Automatically check for updates on launch");
+                ui.add_space(6.0);
+
+                let update_state = updater.state.lock().unwrap().clone();
+                ui.horizontal(|ui| {
+                    let check_btn = ui.button(RichText::new("🔄 Check for Updates Now").font(FontId::proportional(12.0)).strong());
+                    if check_btn.clicked() {
+                        crate::updater::check_for_updates(updater.state.clone(), settings.github_repo.clone());
+                    }
+
+                    match &update_state {
+                        crate::updater::UpdateState::Checking => {
+                            ui.spinner();
+                            ui.label(RichText::new("Checking GitHub releases...").font(FontId::proportional(11.5)).color(Color32::from_rgb(100, 180, 255)));
+                        }
+                        crate::updater::UpdateState::UpToDate { checked_at } => {
+                            ui.label(RichText::new(format!("✓ Up to date (Checked at {})", checked_at)).font(FontId::proportional(11.5)).color(Color32::from_rgb(90, 220, 130)));
+                        }
+                        crate::updater::UpdateState::UpdateAvailable { version, .. } => {
+                            ui.label(RichText::new(format!("🚀 New version v{} is available!", version)).font(FontId::proportional(12.0)).strong().color(Color32::from_rgb(255, 175, 50)));
+                        }
+                        crate::updater::UpdateState::Downloading { progress, .. } => {
+                            ui.label(RichText::new(format!("Downloading update: {:.0}%", progress * 100.0)).font(FontId::proportional(11.5)).color(Color32::from_rgb(100, 195, 255)));
+                        }
+                        crate::updater::UpdateState::ReadyToRestart => {
+                            ui.label(RichText::new("🔄 Restarting to apply update...").font(FontId::proportional(11.5)).color(Color32::from_rgb(90, 230, 140)));
+                        }
+                        crate::updater::UpdateState::Error(err) => {
+                            ui.label(RichText::new(format!("⚠️ {}", err)).font(FontId::proportional(11.0)).color(Color32::from_rgb(255, 120, 100)));
+                        }
+                        _ => {}
+                    }
+                });
+
+                if settings.dev_debug_mode {
+                    ui.add_space(6.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("🧪 Dev Test:").font(FontId::proportional(11.5)).color(Color32::from_rgb(180, 150, 230)));
+                        if ui.button(RichText::new("Simulate Update Notification (v1.0.1)").font(FontId::proportional(11.0))).clicked() {
+                            let mut s = updater.state.lock().unwrap();
+                            *s = crate::updater::UpdateState::UpdateAvailable {
+                                version: "1.0.1".to_string(),
+                                tag_name: "v1.0.1".to_string(),
+                                release_title: "SupBooster v1.0.1".to_string(),
+                                release_notes: "Simulated release notes for testing".to_string(),
+                                published_at: chrono::Local::now().to_rfc3339(),
+                                download_url: format!("https://github.com/{}/releases/download/v1.0.1/SupBoost.exe", settings.github_repo),
+                                asset_name: "SupBoost.exe".to_string(),
+                                asset_size: 14_365_696,
+                            };
+                        }
+                        if ui.button(RichText::new("Reset to Up To Date").font(FontId::proportional(11.0))).clicked() {
+                            let mut s = updater.state.lock().unwrap();
+                            *s = crate::updater::UpdateState::UpToDate { checked_at: chrono::Local::now().format("%H:%M:%S").to_string() };
+                        }
                     });
                 }
             });

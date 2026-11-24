@@ -109,7 +109,7 @@ pub fn is_newer(remote_ver: &str, current_ver: &str) -> bool {
     }
 }
 
-/// Query GitHub Releases API for the latest published release
+/// Query GitHub Releases API for the latest published release (with Atom feed fallback)
 pub async fn fetch_latest_release(repo: &str) -> Result<ReleaseInfo, String> {
     let clean_repo = repo.trim().trim_start_matches("https://github.com/").trim_end_matches(".git");
     let url = format!("https://api.github.com/repos/{}/releases/latest", clean_repo);
@@ -120,58 +120,142 @@ pub async fn fetch_latest_release(repo: &str) -> Result<ReleaseInfo, String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    let resp = client.get(&url).send().await.map_err(|e| format!("Bağlantı hatası: {}", e))?;
-    if !resp.status().is_success() {
-        return Err(format!("GitHub API hatası (HTTP {})", resp.status()));
-    }
+    let api_result = client.get(&url).send().await;
+    if let Ok(resp) = api_result {
+        if resp.status().is_success() {
+            if let Ok(json) = resp.json::<serde_json::Value>().await {
+                let tag_name = json.get("tag_name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let title = json.get("name").and_then(|v| v.as_str()).unwrap_or(&tag_name).to_string();
+                let body = json.get("body").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let published_at = json.get("published_at").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
-    let json: serde_json::Value = resp.json().await.map_err(|e| format!("JSON ayrıştırma hatası: {}", e))?;
+                let assets = json.get("assets").and_then(|v| v.as_array());
+                let mut exe_asset = None;
 
-    let tag_name = json.get("tag_name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let title = json.get("name").and_then(|v| v.as_str()).unwrap_or(&tag_name).to_string();
-    let body = json.get("body").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let published_at = json.get("published_at").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                if let Some(assets_arr) = assets {
+                    for a in assets_arr {
+                        let name = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                        if name.to_lowercase().ends_with(".exe") {
+                            let download_url = a.get("browser_download_url").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let size = a.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+                            exe_asset = Some((name.to_string(), download_url, size));
+                            break;
+                        }
+                    }
+                }
 
-    let assets = json.get("assets").and_then(|v| v.as_array());
-    let mut exe_asset = None;
+                if let Some((asset_name, download_url, asset_size)) = exe_asset {
+                    let version = if let Some((maj, min, pat)) = extract_semver(&tag_name) {
+                        format!("{}.{}.{}", maj, min, pat)
+                    } else if let Some((maj, min, pat)) = extract_semver(&asset_name) {
+                        format!("{}.{}.{}", maj, min, pat)
+                    } else if let Some((maj, min, pat)) = extract_semver(&title) {
+                        format!("{}.{}.{}", maj, min, pat)
+                    } else {
+                        tag_name.clone()
+                    };
 
-    if let Some(assets_arr) = assets {
-        for a in assets_arr {
-            let name = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
-            if name.to_lowercase().ends_with(".exe") {
-                let download_url = a.get("browser_download_url").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let size = a.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
-                exe_asset = Some((name.to_string(), download_url, size));
-                break;
+                    return Ok(ReleaseInfo {
+                        tag_name,
+                        title,
+                        version,
+                        body,
+                        published_at,
+                        asset_name,
+                        asset_size,
+                        download_url,
+                    });
+                }
             }
         }
     }
 
-    let (asset_name, download_url, asset_size) = exe_asset.ok_or_else(|| {
-        "Bu release içinde indirilebilir .exe dosyası bulunamadı.".to_string()
-    })?;
+    // Fallback 1: Query GitHub Releases Atom Feed (unaffected by API rate limits)
+    let atom_url = format!("https://github.com/{}/releases.atom", clean_repo);
+    if let Ok(atom_resp) = client.get(&atom_url).send().await {
+        if let Ok(xml_text) = atom_resp.text().await {
+            if let Some(entry_start) = xml_text.find("<entry>") {
+                let entry = &xml_text[entry_start..];
+                let title = extract_xml_tag(entry, "title").unwrap_or_else(|| "New Release".to_string());
+                
+                // In GitHub Atom feed: <link rel="alternate" ... href="https://github.com/.../releases/tag/v1.0.0"/>
+                // or <id>tag:github.com,2008:Repository/1467927661/v1.0.0</id>
+                let tag_name = if let Some(pos) = entry.find("/releases/tag/") {
+                    let after = &entry[pos + 14..];
+                    if let Some(end) = after.find('"') {
+                        after[..end].to_string()
+                    } else {
+                        title.clone()
+                    }
+                } else if let Some(id_str) = extract_xml_tag(entry, "id") {
+                    id_str.rsplit('/').next().unwrap_or(&title).to_string()
+                } else {
+                    title.clone()
+                };
 
-    // Determine version
-    let version = if let Some((maj, min, pat)) = extract_semver(&tag_name) {
-        format!("{}.{}.{}", maj, min, pat)
-    } else if let Some((maj, min, pat)) = extract_semver(&asset_name) {
-        format!("{}.{}.{}", maj, min, pat)
-    } else if let Some((maj, min, pat)) = extract_semver(&title) {
-        format!("{}.{}.{}", maj, min, pat)
-    } else {
-        tag_name.clone()
-    };
+                let version = if let Some((maj, min, pat)) = extract_semver(&tag_name) {
+                    format!("{}.{}.{}", maj, min, pat)
+                } else {
+                    tag_name.clone()
+                };
 
-    Ok(ReleaseInfo {
-        tag_name,
-        title,
-        version,
-        body,
-        published_at,
-        asset_name,
-        asset_size,
-        download_url,
-    })
+                let download_url = format!("https://github.com/{}/releases/download/{}/SupBoost.exe", clean_repo, tag_name);
+                return Ok(ReleaseInfo {
+                    tag_name,
+                    title,
+                    version,
+                    body: "See GitHub Releases for full update details.".to_string(),
+                    published_at: chrono::Local::now().to_rfc3339(),
+                    asset_name: "SupBoost.exe".to_string(),
+                    asset_size: 14_300_000,
+                    download_url,
+                });
+            }
+        }
+    }
+
+    // Fallback 2: Check redirect header on https://github.com/{clean_repo}/releases/latest
+    let head_url = format!("https://github.com/{}/releases/latest", clean_repo);
+    let no_redir_client = reqwest::Client::builder()
+        .user_agent("SteamBooster-App-Updater")
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    if let Ok(head_resp) = no_redir_client.get(&head_url).send().await {
+        if let Some(loc) = head_resp.headers().get("location").and_then(|v| v.to_str().ok()) {
+            if let Some(tag) = loc.split("/releases/tag/").nth(1) {
+                let tag_name = tag.trim().to_string();
+                let version = if let Some((maj, min, pat)) = extract_semver(&tag_name) {
+                    format!("{}.{}.{}", maj, min, pat)
+                } else {
+                    tag_name.clone()
+                };
+                let download_url = format!("https://github.com/{}/releases/download/{}/SupBoost.exe", clean_repo, tag_name);
+                return Ok(ReleaseInfo {
+                    tag_name: tag_name.clone(),
+                    title: format!("SupBooster {}", tag_name),
+                    version,
+                    body: "See GitHub Releases for update details.".to_string(),
+                    published_at: chrono::Local::now().to_rfc3339(),
+                    asset_name: "SupBoost.exe".to_string(),
+                    asset_size: 14_300_000,
+                    download_url,
+                });
+            }
+        }
+    }
+
+    Err("Could not retrieve latest release from GitHub (API, Atom feed & Redirect)".to_string())
+}
+
+fn extract_xml_tag(s: &str, tag: &str) -> Option<String> {
+    let open = format!("<{}>", tag);
+    let close = format!("</{}>", tag);
+    let start = s.find(&open)? + open.len();
+    let end = s[start..].find(&close)? + start;
+    Some(s[start..end].trim().to_string())
 }
 
 /// Asynchronously check GitHub for new updates
@@ -306,6 +390,8 @@ async fn download_binary(
     }
 
     file.flush().await.map_err(|e| format!("Dosya kaydedilemedi: {}", e))?;
+    drop(file);
+    tokio::time::sleep(Duration::from_millis(200)).await;
     Ok(temp_exe_path)
 }
 
