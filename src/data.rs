@@ -110,6 +110,21 @@ impl Default for CustomThemeColors {
     }
 }
 
+impl CustomThemeColors {
+    pub fn light_default() -> Self {
+        Self {
+            surface: [245, 247, 250],
+            text: [25, 30, 36],
+            accent: [26, 140, 240],
+            glass_alpha: 220,
+        }
+    }
+
+    pub fn dark_default() -> Self {
+        Self::default()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ActiveDropGame {
     pub app_id: u32,
@@ -241,6 +256,10 @@ pub struct Account {
     pub proxy: Option<String>,
     #[serde(default)]
     pub steam_id: u64,
+    #[serde(default)]
+    pub avatar_url: Option<String>,
+    #[serde(default)]
+    pub persona_name: Option<String>,
 }
 
 impl Account {
@@ -260,6 +279,8 @@ impl Account {
             afk_reply_custom: None,
             proxy: None,
             steam_id: 0,
+            avatar_url: None,
+            persona_name: None,
         }
     }
 }

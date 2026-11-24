@@ -34,10 +34,39 @@ impl ThemeEngine {
         };
 
         let accent_c32 = Color32::from_rgb(colors.accent[0], colors.accent[1], colors.accent[2]);
-        let text_c32 = Color32::from_rgb(colors.text[0], colors.text[1], colors.text[2]);
         let surface_c32 = Color32::from_rgb(colors.surface[0], colors.surface[1], colors.surface[2]);
 
-        if mode != ThemeMode::Transparent {
+        // Contrast-safe text color: in Light theme, default to dark/black text so it is always readable
+        let text_c32 = if mode == ThemeMode::Light {
+            let lum = (colors.text[0] as u32 * 299 + colors.text[1] as u32 * 587 + colors.text[2] as u32 * 114) / 1000;
+            if lum > 140 {
+                Color32::from_rgb(25, 30, 36)
+            } else {
+                Color32::from_rgb(colors.text[0], colors.text[1], colors.text[2])
+            }
+        } else {
+            let lum = (colors.text[0] as u32 * 299 + colors.text[1] as u32 * 587 + colors.text[2] as u32 * 114) / 1000;
+            if lum < 60 {
+                Color32::from_rgb(215, 225, 235)
+            } else {
+                Color32::from_rgb(colors.text[0], colors.text[1], colors.text[2])
+            }
+        };
+
+        if mode == ThemeMode::Light {
+            let lum = (colors.surface[0] as u32 * 299 + colors.surface[1] as u32 * 587 + colors.surface[2] as u32 * 114) / 1000;
+            if lum < 140 {
+                visuals.panel_fill = Color32::from_rgb(245, 247, 250);
+                visuals.window_fill = Color32::from_rgb(255, 255, 255);
+            } else {
+                visuals.panel_fill = surface_c32;
+                visuals.window_fill = Color32::from_rgb(
+                    surface_c32.r().saturating_add(6),
+                    surface_c32.g().saturating_add(6),
+                    surface_c32.b().saturating_add(6),
+                );
+            }
+        } else if mode != ThemeMode::Transparent {
             visuals.panel_fill = surface_c32;
             visuals.window_fill = Color32::from_rgb(
                 surface_c32.r().saturating_add(6),
@@ -49,7 +78,7 @@ impl ThemeEngine {
         visuals.override_text_color = Some(text_c32);
         visuals.hyperlink_color = accent_c32;
         visuals.selection.bg_fill = accent_c32;
-        visuals.selection.stroke = Stroke::new(1.0, accent_c32);
+        visuals.selection.stroke = Stroke::new(1.0_f32, accent_c32);
 
         // Rounded widgets
         visuals.widgets.noninteractive.rounding = Rounding::same(6.0);

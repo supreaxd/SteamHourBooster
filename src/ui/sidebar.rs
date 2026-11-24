@@ -129,7 +129,7 @@ fn draw_nav_button(
             );
         }
 
-        // Icon + Label
+        // Icon + Label (ensuring exactly one icon is rendered)
         let text_pos = Pos2::new(rect.min.x + 16.0, rect.center().y - 8.0);
         let display_color = if is_active {
             accent
@@ -139,10 +139,17 @@ fn draw_nav_button(
             text_color
         };
 
+        let clean_label = label.trim_start_matches(|c: char| !c.is_alphabetic()).trim();
+        let display_text = if !icon.is_empty() {
+            format!("{}  {}", icon, clean_label)
+        } else {
+            label.to_string()
+        };
+
         ui.painter().text(
             text_pos,
             egui::Align2::LEFT_TOP,
-            format!("{}  {}", icon, label),
+            display_text,
             FontId::proportional(13.5),
             display_color,
         );

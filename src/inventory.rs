@@ -399,18 +399,191 @@ pub struct BulkSellResult {
     pub total_gross: f64,
     pub total_net: f64,
     pub requires_mobile_confirmation: bool,
+    pub mobile_confirmation_count: usize,
     pub error_count: usize,
+    pub error_message: Option<String>,
+    pub sold_asset_ids: Vec<String>,
 }
 
-/// Execute bulk sell operation with strategy
+/// Obtain Steam web session cookies (`sessionid` and `steamLoginSecure`) from a refresh token
+pub async fn get_steam_web_session(
+    refresh_token: &str,
+    proxy_url: Option<&str>,
+) -> Result<(String, String), String> {
+    let client = if let Some(proxy_str) = proxy_url.filter(|p| !p.trim().is_empty()) {
+        if let Ok(proxy) = reqwest::Proxy::all(proxy_str) {
+            reqwest::Client::builder()
+                .proxy(proxy)
+                .timeout(Duration::from_secs(12))
+                .build()
+                .unwrap_or_default()
+        } else {
+            reqwest::Client::builder()
+                .timeout(Duration::from_secs(12))
+                .build()
+                .unwrap_or_default()
+        }
+    } else {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(12))
+            .build()
+            .unwrap_or_default()
+    };
+
+    let session_id = format!(
+        "{:016x}{:08x}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos(),
+        std::process::id()
+    );
+
+    let finalize_url = "https://login.steampowered.com/jwt/finalizelogin";
+    let body_str = format!(
+        "nonce={}&sessionid={}&redir={}",
+        crate::data::urlencoding_encode(refresh_token),
+        crate::data::urlencoding_encode(&session_id),
+        crate::data::urlencoding_encode("https://steamcommunity.com/login/home/?goto=")
+    );
+
+    let resp = client
+        .post(finalize_url)
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        )
+        .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+        .body(body_str)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to connect to Steam login: {}", e))?;
+
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Invalid JSON from Steam login: {}", e))?;
+
+    let steam_id = json
+        .get("steamID")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Steam login returned no steamID".to_string())?;
+
+    let transfers = json
+        .get("transfer_info")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "Steam login returned no transfer_info".to_string())?;
+
+    let mut community_transfer = None;
+    for t in transfers {
+        if let Some(url) = t.get("url").and_then(|u| u.as_str()) {
+            if url.contains("steamcommunity.com") {
+                community_transfer = Some(t);
+                break;
+            }
+        }
+    }
+
+    let transfer = community_transfer.ok_or_else(|| "No steamcommunity transfer URL found".to_string())?;
+    let set_url = transfer.get("url").and_then(|u| u.as_str()).unwrap_or("");
+    let params_obj = transfer
+        .get("params")
+        .and_then(|p| p.as_object())
+        .ok_or_else(|| "Missing transfer params".to_string())?;
+
+    let mut set_pairs = Vec::new();
+    set_pairs.push(format!("steamID={}", crate::data::urlencoding_encode(steam_id)));
+    for (k, v) in params_obj {
+        if let Some(s) = v.as_str() {
+            set_pairs.push(format!("{}={}", crate::data::urlencoding_encode(k), crate::data::urlencoding_encode(s)));
+        }
+    }
+    let set_body = set_pairs.join("&");
+
+    let set_resp = client
+        .post(set_url)
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        )
+        .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+        .body(set_body)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to set token for steamcommunity: {}", e))?;
+
+    let mut steam_login_secure = None;
+    for cookie_header in set_resp.headers().get_all(reqwest::header::SET_COOKIE) {
+        if let Ok(cookie_str) = cookie_header.to_str() {
+            if cookie_str.starts_with("steamLoginSecure=") {
+                if let Some(val) = cookie_str.split(';').next() {
+                    if let Some(token_val) = val.strip_prefix("steamLoginSecure=") {
+                        steam_login_secure = Some(token_val.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    let login_secure = steam_login_secure.ok_or_else(|| "steamLoginSecure cookie not received from Steam".to_string())?;
+    Ok((session_id, login_secure))
+}
+
+/// Execute bulk sell operation with strategy and real Steam Market listing
 pub async fn execute_bulk_sell(
     items: &[InventoryItem],
     strategy: SellStrategy,
+    refresh_token: Option<String>,
+    steam_id: u64,
+    proxy_url: Option<String>,
     _identity_secret: Option<String>,
 ) -> BulkSellResult {
     let mut total_sold = 0;
     let mut total_gross = 0.0;
     let mut total_net = 0.0;
+    let mut mobile_confirmation_count = 0;
+    let mut error_count = 0;
+    let mut last_error = None;
+    let mut sold_asset_ids = Vec::new();
+
+    let token = match refresh_token.filter(|t| !t.trim().is_empty()) {
+        Some(t) => t,
+        None => {
+            return BulkSellResult {
+                total_sold: 0,
+                total_gross: 0.0,
+                total_net: 0.0,
+                requires_mobile_confirmation: false,
+                mobile_confirmation_count: 0,
+                error_count: items.len(),
+                error_message: Some("No Steam session token. Please log in with QR code in Accounts tab to enable Market selling.".to_string()),
+                sold_asset_ids: Vec::new(),
+            };
+        }
+    };
+
+    // Obtain real session cookies
+    let (session_id, steam_login_secure) = match get_steam_web_session(&token, proxy_url.as_deref()).await {
+        Ok(s) => s,
+        Err(e) => {
+            logger::log_error(&format!("Steam Market Web Auth failed: {}", e));
+            return BulkSellResult {
+                total_sold: 0,
+                total_gross: 0.0,
+                total_net: 0.0,
+                requires_mobile_confirmation: false,
+                mobile_confirmation_count: 0,
+                error_count: items.len(),
+                error_message: Some(format!("Steam Web Login failed: {}. Please re-authenticate via QR code.", e)),
+                sold_asset_ids: Vec::new(),
+            };
+        }
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+        .unwrap_or_default();
 
     for item in items {
         if !item.marketable {
@@ -422,26 +595,88 @@ pub async fn execute_bulk_sell(
             SellStrategy::Undercut => (item.market_price.unwrap_or(0.05) - 0.01).max(0.03),
         };
         let net = calculate_seller_receives(gross);
+        let seller_cents = ((net * 100.0).round().max(1.0)) as u64;
 
-        total_sold += 1;
-        total_gross += gross;
-        total_net += net;
+        let context_id = if item.app_id == 753 { "6" } else { "2" };
+        let app_id_str = item.app_id.to_string();
+        let seller_cents_str = seller_cents.to_string();
 
-        logger::log_success(&format!(
-            "🛒 [Market Listing] Placed: '{}' ({}) at ${:.2} (Seller receives: ${:.2})",
-            item.name, item.game_name, gross, net
-        ));
+        let form_body = format!(
+            "sessionid={}&appid={}&contextid={}&assetid={}&amount=1&price={}",
+            crate::data::urlencoding_encode(&session_id),
+            crate::data::urlencoding_encode(&app_id_str),
+            crate::data::urlencoding_encode(context_id),
+            crate::data::urlencoding_encode(&item.asset_id),
+            crate::data::urlencoding_encode(&seller_cents_str),
+        );
 
-        // Yield between items to simulate safe pace
-        tokio::time::sleep(Duration::from_millis(150)).await;
+        let sell_url = "https://steamcommunity.com/market/sellitem/";
+        let referer_url = format!("https://steamcommunity.com/profiles/{}/inventory/", steam_id);
+        let cookie_header = format!("sessionid={}; steamLoginSecure={};", session_id, steam_login_secure);
+
+        let resp_res = client
+            .post(sell_url)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .header("Referer", &referer_url)
+            .header("Origin", "https://steamcommunity.com")
+            .header("Cookie", &cookie_header)
+            .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+            .body(form_body)
+            .send()
+            .await;
+
+        match resp_res {
+            Ok(resp) => {
+                if let Ok(json) = resp.json::<serde_json::Value>().await {
+                    let is_success = json.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+                    if is_success {
+                        let requires_conf = json.get("requires_confirmation").and_then(|v| v.as_i64()).unwrap_or(0) == 1
+                            || json.get("needs_mobile_confirmation").and_then(|v| v.as_bool()).unwrap_or(false);
+
+                        if requires_conf {
+                            mobile_confirmation_count += 1;
+                        }
+
+                        total_sold += 1;
+                        total_gross += gross;
+                        total_net += net;
+                        sold_asset_ids.push(item.asset_id.clone());
+
+                        logger::log_success(&format!(
+                            "🛒 [Market Listing] Listed '{}' at ${:.2} (Seller: ${:.2}){}",
+                            item.name, gross, net,
+                            if requires_conf { " [Mobile Confirmation Required]" } else { "" }
+                        ));
+                    } else {
+                        error_count += 1;
+                        let msg = json.get("message").and_then(|m| m.as_str()).unwrap_or("Listing rejected by Steam");
+                        last_error = Some(msg.to_string());
+                        logger::log_error(&format!("Market Listing Failed for '{}': {}", item.name, msg));
+                    }
+                } else {
+                    error_count += 1;
+                    last_error = Some("Invalid response from Steam Community Market".to_string());
+                }
+            }
+            Err(e) => {
+                error_count += 1;
+                last_error = Some(format!("Network request failed: {}", e));
+            }
+        }
+
+        // Safe delay between market listings to prevent Steam 429
+        tokio::time::sleep(Duration::from_millis(350)).await;
     }
 
     BulkSellResult {
         total_sold,
         total_gross,
         total_net,
-        requires_mobile_confirmation: total_sold > 5 || total_gross > 3.0,
-        error_count: 0,
+        requires_mobile_confirmation: mobile_confirmation_count > 0,
+        mobile_confirmation_count,
+        error_count,
+        error_message: last_error,
+        sold_asset_ids,
     }
 }
 
@@ -525,4 +760,59 @@ pub async fn check_inventory_tracker(
     }
 
     Some(info)
+}
+
+/// Asynchronously fetch Steam profile avatar URL (supporting static and animated avatars / GIF)
+pub async fn fetch_account_avatar(steam_id: u64, proxy_url: Option<String>) -> Option<String> {
+    if steam_id == 0 {
+        return None;
+    }
+    let account_id = (steam_id & 0xFFFFFFFF) as u32;
+    let url = format!("https://steamcommunity.com/miniprofile/{}/json", account_id);
+
+    let client = if let Some(proxy_str) = proxy_url.filter(|p| !p.trim().is_empty()) {
+        if let Ok(proxy) = reqwest::Proxy::all(proxy_str) {
+            reqwest::Client::builder()
+                .proxy(proxy)
+                .timeout(Duration::from_secs(8))
+                .build()
+                .unwrap_or_default()
+        } else {
+            reqwest::Client::builder()
+                .timeout(Duration::from_secs(8))
+                .build()
+                .unwrap_or_default()
+        }
+    } else {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(8))
+            .build()
+            .unwrap_or_default()
+    };
+
+    if let Ok(resp) = client
+        .get(&url)
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        )
+        .header("Referer", "https://steamcommunity.com/")
+        .send()
+        .await
+    {
+        if let Ok(json) = resp.json::<serde_json::Value>().await {
+            // Check animated avatar first if available
+            if let Some(anim) = json.get("animated_avatar").and_then(|v| v.as_str()) {
+                if !anim.is_empty() {
+                    return Some(anim.to_string());
+                }
+            }
+            if let Some(av) = json.get("avatar_url").and_then(|v| v.as_str()) {
+                if !av.is_empty() {
+                    return Some(av.to_string());
+                }
+            }
+        }
+    }
+    None
 }

@@ -1,33 +1,38 @@
-use eframe::egui::{self, Align2, Color32, Context, FontId, ProgressBar, RichText, Rounding, Stroke, Vec2};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use eframe::egui::{self, Align2, Color32, Context, FontId, RichText, Rounding, Stroke, Vec2};
 use crate::data::{CustomThemeColors, InventoryItem, SellStrategy};
 use crate::i18n::Strings;
 use crate::inventory::{execute_bulk_sell, BulkSellResult};
 use crate::updater::{UpdateManager, UpdateState};
 
 pub struct ModalManager {
-    pub is_selling: bool,
-    pub sell_progress: f32,
-    pub sell_result: Option<BulkSellResult>,
+    pub is_selling: Arc<AtomicBool>,
+    pub sell_result: Arc<Mutex<Option<BulkSellResult>>>,
+    pub sell_status_msg: Arc<Mutex<String>>,
     pub show_quota_warning: bool,
 }
 
 impl ModalManager {
     pub fn new() -> Self {
         Self {
-            is_selling: false,
-            sell_progress: 0.0,
-            sell_result: None,
+            is_selling: Arc::new(AtomicBool::new(false)),
+            sell_result: Arc::new(Mutex::new(None)),
+            sell_status_msg: Arc::new(Mutex::new(String::new())),
             show_quota_warning: false,
         }
     }
 
-    /// Draws the Bulk Sell Confirmation Modal with dimmed overlay
+    /// Draws the Bulk Sell Confirmation Modal without darkened backdrop
     pub fn draw_sell_modal(
         &mut self,
         ctx: &Context,
         is_open: &mut bool,
         items: &[InventoryItem],
         strategy: SellStrategy,
+        refresh_token: Option<String>,
+        steam_id: u64,
+        proxy_url: Option<String>,
         identity_secret: Option<String>,
         colors: &CustomThemeColors,
         strings: &Strings,
@@ -44,16 +49,15 @@ impl ModalManager {
         let formatted_total = format!("${:.2}", total_gross);
         let confirmation_msg = strings.format_sell_confirm(total_count, &formatted_total);
 
-        // Dimmed backdrop
-        let screen_rect = ctx.screen_rect();
-        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("sell_modal_backdrop")));
-        painter.rect_filled(screen_rect, Rounding::ZERO, Color32::from_black_alpha(175));
+        let is_selling = self.is_selling.load(Ordering::Relaxed);
+        let result_opt = self.sell_result.lock().unwrap().clone();
+        let status_msg = self.sell_status_msg.lock().unwrap().clone();
 
         egui::Window::new(strings.sell_confirm_title)
             .collapsible(false)
             .resizable(false)
             .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
-            .default_width(460.0)
+            .default_width(480.0)
             .show(ctx, |ui| {
                 ui.add_space(8.0);
 
@@ -88,32 +92,69 @@ impl ModalManager {
 
                 ui.add_space(8.0);
 
-                // Mobile 2FA indicator
-                if total_count > 5 || total_gross > 3.0 {
+                // Selling in progress view
+                if is_selling {
                     egui::Frame::none()
-                        .fill(Color32::from_rgba_premultiplied(255, 180, 50, 25))
-                        .rounding(Rounding::same(6.0))
-                        .stroke(Stroke::new(1.0, Color32::from_rgba_premultiplied(255, 180, 50, 80)))
-                        .inner_margin(egui::Margin::same(8.0))
+                        .fill(Color32::from_rgba_unmultiplied(20, 30, 45, 230))
+                        .rounding(Rounding::same(8.0))
+                        .stroke(Stroke::new(1.0_f32, Color32::from_rgb(90, 160, 240)))
+                        .inner_margin(egui::Margin::same(10.0))
                         .show(ui, |ui| {
-                            ui.label(RichText::new(strings.mobile_2fa_notice).font(FontId::proportional(11.0)).color(Color32::from_rgb(255, 195, 80)));
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.add_space(6.0);
+                                ui.label(RichText::new(if status_msg.is_empty() { "Connecting to Steam Market & Listing Items..." } else { &status_msg })
+                                    .font(FontId::proportional(12.0)).color(Color32::from_rgb(120, 200, 255)));
+                            });
                         });
                     ui.add_space(8.0);
-                }
-
-                // Progress Bar if sale in progress
-                if self.is_selling {
-                    ui.label(RichText::new("Executing sale on Steam Community Market...").font(FontId::proportional(11.5)));
-                    ui.add(ProgressBar::new(self.sell_progress).animate(true));
-                    ui.add_space(8.0);
+                    ctx.request_repaint();
                 }
 
                 // Result display
-                if let Some(ref res) = self.sell_result {
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(format!("✅ {} items successfully listed! Total Net: ${:.2}", res.total_sold, res.total_net)).font(FontId::proportional(12.0)).color(Color32::from_rgb(90, 220, 130)));
-                    });
-                    ui.add_space(8.0);
+                if let Some(ref res) = result_opt {
+                    if res.total_sold > 0 {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(format!("✅ {} items successfully listed! Total Net: ${:.2}", res.total_sold, res.total_net))
+                                .font(FontId::proportional(12.5)).color(Color32::from_rgb(90, 220, 130)).strong());
+                        });
+                        ui.add_space(8.0);
+                    }
+
+                    // Mobile 2FA indicator - Highly visible alert when items require phone confirmation
+                    if res.requires_mobile_confirmation || res.mobile_confirmation_count > 0 {
+                        egui::Frame::none()
+                            .fill(Color32::from_rgba_unmultiplied(20, 38, 26, 235))
+                            .rounding(Rounding::same(8.0))
+                            .stroke(Stroke::new(1.5_f32, Color32::from_rgb(70, 220, 130)))
+                            .inner_margin(egui::Margin::same(12.0))
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label(RichText::new("📱").font(FontId::proportional(26.0)));
+                                    ui.add_space(4.0);
+                                    ui.vertical(|ui| {
+                                        ui.label(RichText::new("Steam Guard Mobile Confirmation Sent!").font(FontId::proportional(13.5)).strong().color(Color32::from_rgb(90, 240, 150)));
+                                        ui.add_space(2.0);
+                                        ui.label(RichText::new("A confirmation notification was sent to your phone's Steam app. Please open Steam -> Confirmations (Onaylar) on your mobile device to approve the market listings.")
+                                            .font(FontId::proportional(11.5)).color(Color32::from_rgb(215, 240, 225)));
+                                    });
+                                });
+                            });
+                        ui.add_space(8.0);
+                    }
+
+                    if res.error_count > 0 {
+                        egui::Frame::none()
+                            .fill(Color32::from_rgba_unmultiplied(40, 20, 20, 220))
+                            .rounding(Rounding::same(6.0))
+                            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(240, 90, 90)))
+                            .inner_margin(egui::Margin::same(8.0))
+                            .show(ui, |ui| {
+                                let err_text = res.error_message.as_deref().unwrap_or("Failed to list some items on Steam Market");
+                                ui.label(RichText::new(format!("⚠️ {}", err_text)).font(FontId::proportional(11.5)).color(Color32::from_rgb(255, 140, 130)));
+                            });
+                        ui.add_space(8.0);
+                    }
                 }
 
                 ui.separator();
@@ -121,38 +162,53 @@ impl ModalManager {
 
                 // Action buttons
                 ui.horizontal(|ui| {
-                    if !self.is_selling && self.sell_result.is_none() {
+                    if !is_selling && result_opt.is_none() {
                         let accent = Color32::from_rgb(colors.accent[0], colors.accent[1], colors.accent[2]);
                         if ui.button(RichText::new(strings.btn_confirm_sell).font(FontId::proportional(13.0)).color(accent).strong()).clicked() {
-                            self.is_selling = true;
-                            self.sell_progress = 0.1;
+                            self.is_selling.store(true, Ordering::Relaxed);
+                            *self.sell_status_msg.lock().unwrap() = "Authenticating Steam Web Session...".to_string();
+                            *self.sell_result.lock().unwrap() = None;
+
+                            let is_selling_clone = self.is_selling.clone();
+                            let result_clone = self.sell_result.clone();
+                            let status_clone = self.sell_status_msg.clone();
                             let items_clone = items.to_vec();
                             let strat = strategy;
-                            let id_secret = identity_secret.clone();
+                            let token_clone = refresh_token.clone();
+                            let proxy_clone = proxy_url.clone();
+                            let id_secret_clone = identity_secret.clone();
+                            let s_id = steam_id;
 
                             crate::steam::get_runtime().spawn(async move {
-                                let res = execute_bulk_sell(&items_clone, strat, id_secret).await;
-                                crate::logger::log_success(&format!(
-                                    "✓ Bulk sell completed: {} items listed (${:.2})",
-                                    res.total_sold, res.total_net
-                                ));
-                            });
+                                if let Ok(mut lock) = status_clone.lock() {
+                                    *lock = "Listing items on Steam Community Market...".to_string();
+                                }
+                                let res = execute_bulk_sell(
+                                    &items_clone,
+                                    strat,
+                                    token_clone,
+                                    s_id,
+                                    proxy_clone,
+                                    id_secret_clone,
+                                ).await;
 
-                            self.is_selling = false;
-                            self.sell_result = Some(BulkSellResult {
-                                total_sold: total_count,
-                                total_gross,
-                                total_net,
-                                requires_mobile_confirmation: total_count > 5,
-                                error_count: 0,
+                                crate::logger::log_success(&format!(
+                                    "✓ Bulk sell finished: {} items listed (${:.2}), {} errors",
+                                    res.total_sold, res.total_net, res.error_count
+                                ));
+
+                                if let Ok(mut lock) = result_clone.lock() {
+                                    *lock = Some(res);
+                                }
+                                is_selling_clone.store(false, Ordering::Relaxed);
                             });
                         }
                     }
 
                     if ui.button(RichText::new("Close / Cancel").font(FontId::proportional(12.0))).clicked() {
                         *is_open = false;
-                        self.sell_result = None;
-                        self.is_selling = false;
+                        *self.sell_result.lock().unwrap() = None;
+                        self.is_selling.store(false, Ordering::Relaxed);
                     }
                 });
             });
@@ -171,24 +227,19 @@ impl ModalManager {
             return;
         }
 
-        // Dimmed backdrop
-        let screen_rect = ctx.screen_rect();
-        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("changelogs_backdrop")));
-        painter.rect_filled(screen_rect, Rounding::ZERO, Color32::from_black_alpha(160));
-
         let accent = Color32::from_rgb(colors.accent[0], colors.accent[1], colors.accent[2]);
 
-        egui::Window::new("📋 Release Changelogs (v0.4.0)")
+        egui::Window::new("📋 Release Changelogs (v1.0.0)")
             .collapsible(false)
             .resizable(false)
             .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
-            .default_width(520.0)
+            .default_width(540.0)
             .show(ctx, |ui| {
                 ui.add_space(4.0);
 
                 ui.vertical(|ui| {
-                    ui.label(RichText::new("🚀 SupBooster Major Release v0.4.0").font(FontId::proportional(16.0)).strong().color(accent));
-                    ui.label(RichText::new("Published: November 24, 2026").font(FontId::proportional(11.0)).color(Color32::from_rgb(130, 150, 175)));
+                    ui.label(RichText::new("🚀 SupBooster Official Release v1.0.0").font(FontId::proportional(16.0)).strong().color(accent));
+                    ui.label(RichText::new("Published: November 2026").font(FontId::proportional(11.0)).color(Color32::from_rgb(130, 150, 175)));
                 });
 
                 ui.add_space(8.0);
@@ -196,19 +247,18 @@ impl ModalManager {
                 ui.add_space(8.0);
 
                 // Release notes list in pure English
-                ui.label(RichText::new("What's New & Improvements:").font(FontId::proportional(13.0)).strong());
+                ui.label(RichText::new("What's New, Bug Fixes & Improvements:").font(FontId::proportional(13.0)).strong());
                 ui.add_space(4.0);
 
                 let bullets = [
-                    "• UI Improvements & Optimizations: Completely redesigned interface with clean spacing, responsive vertical game lists, and high-contrast status badges.",
-                    "• Transparent Blur Theme: Hardware-accelerated Acrylic / Mica vibrancy with custom RGB surface, text, and accent color pickers.",
-                    "• Active Drops & Auto-Switch: Real-time Steam badge drop tracking with automated game switching once all eligible card drops are collected.",
-                    "• Inventory Inspection & Bulk Selling: Collapsing game item groups, Steam CDN item thumbnails, live market prices, and 15% commission fee calculation.",
-                    "• Fast Selling Strategies: One-click bulk market listings with Quick Sell (highest buy order) or Undercut (-0.01) pricing options.",
-                    "• Steam Guard 2FA Mobile Confirmations: Automated one-click confirmation for bulk market sales using account identity_secret.",
-                    "• Focused Telegram Bot: Dedicated exclusively to real-time Steam trading card drop events and market value alerts (web server removed).",
-                    "• Data Quota Protection: Interactive carrier data usage warning before downloading software updates.",
-                    "• Robust Networking: Automatic failover to direct connection if a configured proxy server is offline or unreachable.",
+                    "• Real Steam Community Market Listing: Full session cookie authentication from QR tokens with real HTTP POST /market/sellitem integration.",
+                    "• Steam Guard Mobile Confirmation Alert: Explicit notifications when listings require mobile verification on your phone app.",
+                    "• Clean Modal Display: Eliminated heavy black background darkening; modals now blend smoothly with desktop themes.",
+                    "• Steam Profile Pictures & GIF Support: Live Steam avatar CDN integration in the top status bar with animated GIF avatar support.",
+                    "• Real-Time Game Autocomplete: Instantly searches and auto-completes game names (e.g. 'Counter-Strike') as you type in Store Search.",
+                    "• Single Sidebar Icons: Fixed duplicate icons on navigation tabs (Dashboard, Active Drops, Inventory, Accounts, Telegram, Settings).",
+                    "• Vertical Game Stacking: All boosting games and accounts are stacked vertically with smooth scrolling and zero horizontal overflow.",
+                    "• Rate-Limiting & Proxy Fallback: Automatic direct connection failover if local proxies are offline, plus dynamic 75-item inventory chunking.",
                 ];
 
                 for b in &bullets {
@@ -224,11 +274,10 @@ impl ModalManager {
                 let has_update = matches!(state, UpdateState::UpdateAvailable { .. });
 
                 if self.show_quota_warning {
-                    // Quota warning sub-modal step
                     egui::Frame::none()
                         .fill(Color32::from_rgba_unmultiplied(255, 175, 50, 30))
                         .rounding(Rounding::same(8.0))
-                        .stroke(Stroke::new(1.0, Color32::from_rgb(255, 175, 50)))
+                        .stroke(Stroke::new(1.0_f32, Color32::from_rgb(255, 175, 50)))
                         .inner_margin(egui::Margin::same(10.0))
                         .show(ui, |ui| {
                             ui.label(RichText::new("⚠️ Data Usage & Download Confirmation").font(FontId::proportional(12.5)).color(Color32::from_rgb(255, 185, 60)).strong());
@@ -250,7 +299,6 @@ impl ModalManager {
                         });
                     ui.add_space(8.0);
                 } else {
-                    // Action row
                     ui.horizontal(|ui| {
                         if has_update {
                             if ui.button(RichText::new("🚀 Download Update").font(FontId::proportional(12.5)).color(accent).strong()).clicked() {

@@ -10,8 +10,9 @@ pub struct AccountsView {
     pub is_adding_new: bool,
     pub guard_inputs: HashMap<u64, String>,
     pub store_search_query: String,
+    pub last_searched_query: String,
     pub store_search_results: Arc<Mutex<Vec<(u32, String)>>>,
-    pub is_searching_store: bool,
+    pub is_searching_store: Arc<std::sync::atomic::AtomicBool>,
     pub custom_appid_input: String,
     pub custom_appname_input: String,
 }
@@ -23,8 +24,9 @@ impl AccountsView {
             is_adding_new: false,
             guard_inputs: HashMap::new(),
             store_search_query: String::new(),
+            last_searched_query: String::new(),
             store_search_results: Arc::new(Mutex::new(Vec::new())),
-            is_searching_store: false,
+            is_searching_store: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             custom_appid_input: String::new(),
             custom_appname_input: String::new(),
         }
@@ -162,44 +164,95 @@ impl AccountsView {
 
                     ui.add_space(8.0);
 
-                    // Add Game: Store Search + Custom AppID
+                    // Add Game: Store Search with Live Autocomplete + Custom AppID
                     ui.columns(2, |cols| {
                         cols[0].vertical(|ui| {
-                            ui.label(RichText::new("Search Steam Store:").font(FontId::proportional(12.0)));
+                            ui.label(RichText::new("Search Steam Store (Auto-suggests as you type):").font(FontId::proportional(12.0)));
                             ui.horizontal(|ui| {
-                                ui.add(egui::TextEdit::singleline(&mut self.store_search_query).hint_text("Game name...").desired_width(180.0));
-                                if ui.button("🔍 Search").clicked() && !self.store_search_query.trim().is_empty() {
-                                    self.is_searching_store = true;
-                                    let q = self.store_search_query.clone();
+                                let search_edit = ui.add(
+                                    egui::TextEdit::singleline(&mut self.store_search_query)
+                                        .hint_text("Type game name (e.g. Counter-Strike, Rust)...")
+                                        .desired_width(190.0)
+                                );
+
+                                let trimmed = self.store_search_query.trim().to_string();
+                                let searching = self.is_searching_store.load(std::sync::atomic::Ordering::Relaxed);
+
+                                // Live autocomplete trigger on text edit change or new query
+                                if (search_edit.changed() || (trimmed.len() >= 2 && trimmed != self.last_searched_query)) && !searching {
+                                    self.last_searched_query = trimmed.clone();
+                                    let q = trimmed.clone();
                                     let results_arc = self.store_search_results.clone();
+                                    let is_searching_flag = self.is_searching_store.clone();
+                                    is_searching_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+
                                     crate::steam::get_runtime().spawn(async move {
                                         let results = crate::telegram::search_steam_games(&q).await;
                                         let mut mapped = Vec::new();
                                         for val in results {
-                                            if let (Some(id), Some(name)) = (val.get("app_id").and_then(|i| i.as_u64()), val.get("name").and_then(|n| n.as_str())) {
+                                            if let (Some(id), Some(name)) = (
+                                                val.get("app_id").and_then(|i| i.as_u64()),
+                                                val.get("name").and_then(|n| n.as_str()),
+                                            ) {
                                                 mapped.push((id as u32, name.to_string()));
                                             }
                                         }
                                         if let Ok(mut l) = results_arc.lock() {
                                             *l = mapped;
                                         }
+                                        is_searching_flag.store(false, std::sync::atomic::Ordering::Relaxed);
                                     });
-                                    self.is_searching_store = false;
+                                }
+
+                                if searching {
+                                    ui.spinner();
+                                } else if ui.button("🔍 Search").clicked() && !trimmed.is_empty() {
+                                    self.last_searched_query = trimmed.clone();
+                                    let q = trimmed;
+                                    let results_arc = self.store_search_results.clone();
+                                    let is_searching_flag = self.is_searching_store.clone();
+                                    is_searching_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+
+                                    crate::steam::get_runtime().spawn(async move {
+                                        let results = crate::telegram::search_steam_games(&q).await;
+                                        let mut mapped = Vec::new();
+                                        for val in results {
+                                            if let (Some(id), Some(name)) = (
+                                                val.get("app_id").and_then(|i| i.as_u64()),
+                                                val.get("name").and_then(|n| n.as_str()),
+                                            ) {
+                                                mapped.push((id as u32, name.to_string()));
+                                            }
+                                        }
+                                        if let Ok(mut l) = results_arc.lock() {
+                                            *l = mapped;
+                                        }
+                                        is_searching_flag.store(false, std::sync::atomic::Ordering::Relaxed);
+                                    });
                                 }
                             });
 
                             let results = self.store_search_results.lock().unwrap().clone();
                             if !results.is_empty() {
-                                ScrollArea::vertical().max_height(100.0).show(ui, |ui| {
-                                    for (app_id, name) in results.iter().take(8) {
+                                ScrollArea::vertical().max_height(140.0).show(ui, |ui| {
+                                    for (app_id, name) in results.iter().take(12) {
+                                        let is_already_added = acc.games.iter().any(|g| g.app_id == *app_id);
+                                        let img_url = format!("https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{}/capsule_231x87.jpg", app_id);
+
                                         ui.horizontal(|ui| {
+                                            ui.add(egui::Image::new(&img_url).fit_to_exact_size(Vec2::new(38.0, 18.0)).rounding(Rounding::same(3.0)));
                                             ui.label(RichText::new(name).font(FontId::proportional(11.5)));
-                                            if ui.button("＋ Add").clicked() {
-                                                if !acc.games.iter().any(|g| g.app_id == *app_id) {
+                                            ui.label(RichText::new(format!("({})", app_id)).font(FontId::proportional(10.0)).color(Color32::from_rgb(130, 150, 175)));
+
+                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                if is_already_added {
+                                                    ui.label(RichText::new("✓ Added").font(FontId::proportional(11.0)).color(Color32::from_rgb(100, 200, 130)));
+                                                } else if ui.button(RichText::new("＋ Add").font(FontId::proportional(11.0)).color(Color32::from_rgb(90, 200, 255))).clicked() {
                                                     acc.games.push(GameEntry::new(*app_id, name.clone()));
                                                 }
-                                            }
+                                            });
                                         });
+                                        ui.separator();
                                     }
                                 });
                             }

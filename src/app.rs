@@ -488,12 +488,36 @@ impl eframe::App for SteamBoosterApp {
 
         // ─── 4. MODALS ───
         // Bulk Sell Confirmation Modal
-        let active_identity_secret = self.config.accounts.first().and_then(|a| a.identity_secret.clone());
+        let (active_token, active_steam_id, active_proxy, active_identity_secret) = {
+            let idx = self.inventory_view.selected_account_index;
+            if let Some(acc_arc) = self.runtime_accounts.get(idx) {
+                let a = acc_arc.lock().unwrap();
+                (a.refresh_token.clone(), a.steam_id, a.proxy.clone(), a.identity_secret.clone())
+            } else if let Some(acc) = self.config.accounts.get(idx) {
+                (acc.refresh_token.clone(), acc.steam_id, acc.proxy.clone(), acc.identity_secret.clone())
+            } else {
+                (None, 0, None, None)
+            }
+        };
+
+        if let Ok(lock) = self.modal_mgr.sell_result.lock() {
+            if let Some(ref res) = *lock {
+                if !res.sold_asset_ids.is_empty() {
+                    for sold_id in &res.sold_asset_ids {
+                        self.inventory_view.selected_asset_ids.remove(sold_id);
+                    }
+                }
+            }
+        }
+
         self.modal_mgr.draw_sell_modal(
             ctx,
             &mut self.show_sell_modal,
             &self.modal_selected_items,
             self.inventory_view.sell_strategy,
+            active_token,
+            active_steam_id,
+            active_proxy,
             active_identity_secret,
             &self.config.settings.custom_colors,
             &strings,

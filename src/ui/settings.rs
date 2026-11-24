@@ -38,10 +38,33 @@ impl SettingsView {
                 // Theme Mode Selector
                 ui.label(RichText::new("Theme Mode:").font(FontId::proportional(12.0)));
                 ui.horizontal(|ui| {
-                    ui.selectable_value(&mut settings.theme_mode, ThemeMode::Dark, "🌙 Dark");
-                    ui.selectable_value(&mut settings.theme_mode, ThemeMode::Light, "☀️ Light");
-                    ui.selectable_value(&mut settings.theme_mode, ThemeMode::System, "💻 System");
-                    ui.selectable_value(&mut settings.theme_mode, ThemeMode::Transparent, "✨ Transparent (Blur)");
+                    if ui.selectable_label(settings.theme_mode == ThemeMode::Dark, "🌙 Dark").clicked() {
+                        settings.theme_mode = ThemeMode::Dark;
+                        let lum = (settings.custom_colors.text[0] as u32 * 299 + settings.custom_colors.text[1] as u32 * 587 + settings.custom_colors.text[2] as u32 * 114) / 1000;
+                        if lum < 70 {
+                            settings.custom_colors.text = [198, 212, 223];
+                            settings.custom_colors.surface = [22, 26, 36];
+                        }
+                    }
+                    if ui.selectable_label(settings.theme_mode == ThemeMode::Light, "☀️ Light").clicked() {
+                        settings.theme_mode = ThemeMode::Light;
+                        let lum = (settings.custom_colors.text[0] as u32 * 299 + settings.custom_colors.text[1] as u32 * 587 + settings.custom_colors.text[2] as u32 * 114) / 1000;
+                        if lum > 140 {
+                            settings.custom_colors.text = [25, 30, 36];
+                            settings.custom_colors.surface = [245, 247, 250];
+                        }
+                    }
+                    if ui.selectable_label(settings.theme_mode == ThemeMode::System, "💻 System").clicked() {
+                        settings.theme_mode = ThemeMode::System;
+                    }
+                    if ui.selectable_label(settings.theme_mode == ThemeMode::Transparent, "✨ Transparent (Blur)").clicked() {
+                        settings.theme_mode = ThemeMode::Transparent;
+                        let lum = (settings.custom_colors.text[0] as u32 * 299 + settings.custom_colors.text[1] as u32 * 587 + settings.custom_colors.text[2] as u32 * 114) / 1000;
+                        if lum < 70 {
+                            settings.custom_colors.text = [198, 212, 223];
+                            settings.custom_colors.surface = [22, 26, 36];
+                        }
+                    }
                 });
 
                 if settings.theme_mode == ThemeMode::Transparent {
@@ -92,7 +115,11 @@ impl SettingsView {
 
                 ui.add_space(6.0);
                 if ui.button(RichText::new("Reset Colors to Default").font(FontId::proportional(11.5))).clicked() {
-                    settings.custom_colors = CustomThemeColors::default();
+                    settings.custom_colors = if settings.theme_mode == ThemeMode::Light {
+                        CustomThemeColors::light_default()
+                    } else {
+                        CustomThemeColors::dark_default()
+                    };
                 }
 
                 ui.add_space(8.0);
