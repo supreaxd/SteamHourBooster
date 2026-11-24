@@ -51,7 +51,7 @@ impl AccountsView {
 
             ThemeEngine::card_frame(theme_mode, colors).show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    let title = if is_new { "＋ Yeni Steam Hesabı Ekle" } else { "✏ Steam Hesabını Düzenle" };
+                    let title = if is_new { "＋ Add New Steam Account" } else { "✏ Edit Steam Account" };
                     ui.label(RichText::new(title).font(FontId::proportional(15.0)).strong());
                 });
                 ui.add_space(8.0);
@@ -60,19 +60,19 @@ impl AccountsView {
                     ui.columns(2, |cols| {
                         // Left column: Credentials & Persona
                         cols[0].vertical(|ui| {
-                            ui.label(RichText::new("Steam Kullanıcı Adı:").font(FontId::proportional(12.0)));
+                            ui.label(RichText::new("Steam Username:").font(FontId::proportional(12.0)));
                             ui.add(egui::TextEdit::singleline(&mut acc.username).desired_width(f32::INFINITY));
                             ui.add_space(4.0);
 
-                            ui.label(RichText::new("Şifre:").font(FontId::proportional(12.0)));
+                            ui.label(RichText::new("Password:").font(FontId::proportional(12.0)));
                             ui.add(egui::TextEdit::singleline(&mut acc.password).password(true).desired_width(f32::INFINITY));
                             ui.add_space(4.0);
 
-                            ui.label(RichText::new("Özel Durum / Oyun Başlığı:").font(FontId::proportional(12.0)));
+                            ui.label(RichText::new("Custom Status / Game Title:").font(FontId::proportional(12.0)));
                             ui.add(egui::TextEdit::singleline(&mut acc.custom_title).hint_text("Half-Life 3 (Beta)").desired_width(f32::INFINITY));
                             ui.add_space(4.0);
 
-                            ui.label(RichText::new("Steam Görünüm Durumu:").font(FontId::proportional(12.0)));
+                            ui.label(RichText::new("Steam Persona State:").font(FontId::proportional(12.0)));
                             let avail_w = ui.available_width() - 4.0;
                             egui::ComboBox::from_id_salt("edit_persona_combo")
                                 .selected_text(acc.persona_state.label())
@@ -94,24 +94,24 @@ impl AccountsView {
 
                         // Right column: 2FA Secrets & Steam Guard
                         cols[1].vertical(|ui| {
-                            ui.label(RichText::new("Shared Secret (Otomatik 2FA Girişi):").font(FontId::proportional(12.0)));
+                            ui.label(RichText::new("Shared Secret (Auto-2FA Login):").font(FontId::proportional(12.0)));
                             let mut ss_str = acc.shared_secret.clone().unwrap_or_default();
-                            if ui.add(egui::TextEdit::singleline(&mut ss_str).hint_text("Base64 formatında shared_secret").desired_width(f32::INFINITY)).changed() {
+                            if ui.add(egui::TextEdit::singleline(&mut ss_str).hint_text("Base64 encoded shared_secret").desired_width(f32::INFINITY)).changed() {
                                 acc.shared_secret = if ss_str.trim().is_empty() { None } else { Some(ss_str.trim().to_string()) };
                             }
                             ui.add_space(4.0);
 
-                            ui.label(RichText::new("Identity Secret (Toplu Satış & Mobil Onay):").font(FontId::proportional(12.0)));
+                            ui.label(RichText::new("Identity Secret (Market Bulk Sell & 2FA Confirmations):").font(FontId::proportional(12.0)));
                             let mut is_str = acc.identity_secret.clone().unwrap_or_default();
-                            if ui.add(egui::TextEdit::singleline(&mut is_str).hint_text("Base64 formatında identity_secret").desired_width(f32::INFINITY)).changed() {
+                            if ui.add(egui::TextEdit::singleline(&mut is_str).hint_text("Base64 encoded identity_secret").desired_width(f32::INFINITY)).changed() {
                                 acc.identity_secret = if is_str.trim().is_empty() { None } else { Some(is_str.trim().to_string()) };
                             }
-                            ui.label(RichText::new("Pazarda toplu eşya satışı yapıldığında mobil onay için kullanılır.").font(FontId::proportional(10.5)).color(Color32::from_rgb(110, 130, 150)));
+                            ui.label(RichText::new("Used for Steam Guard mobile confirmations when bulk selling on the market.").font(FontId::proportional(10.5)).color(Color32::from_rgb(110, 130, 150)));
                             ui.add_space(4.0);
 
-                            ui.label(RichText::new("Özel AFK Yanıt Mesajı (Opsiyonel):").font(FontId::proportional(12.0)));
+                            ui.label(RichText::new("Custom AFK Auto-Reply Message (Optional):").font(FontId::proportional(12.0)));
                             let mut afk_str = acc.afk_reply_custom.clone().unwrap_or_default();
-                            if ui.add(egui::TextEdit::singleline(&mut afk_str).hint_text("Boşsa genel ayarlardaki mesaj kullanılır").desired_width(f32::INFINITY)).changed() {
+                            if ui.add(egui::TextEdit::singleline(&mut afk_str).hint_text("Uses default message from Settings if left empty").desired_width(f32::INFINITY)).changed() {
                                 acc.afk_reply_custom = if afk_str.trim().is_empty() { None } else { Some(afk_str.trim().to_string()) };
                             }
                         });
@@ -121,43 +121,54 @@ impl AccountsView {
                     ui.separator();
                     ui.add_space(6.0);
 
-                    // ─── GAMES TO BOOST FOR THIS ACCOUNT ───
-                    ui.label(RichText::new("🎮 Kasılan Oyunlar").font(FontId::proportional(14.0)).strong());
+                    // ─── GAMES TO BOOST FOR THIS ACCOUNT (Vertical rows - Alt Alta, never overflows) ───
+                    ui.label(RichText::new(format!("🎮 Boosting Games ({})", acc.games.len())).font(FontId::proportional(13.5)).strong());
                     ui.add_space(4.0);
 
-                    // Current games chips with remove button
-                    ui.horizontal_wrapped(|ui| {
-                        let mut to_remove_idx: Option<usize> = None;
-                        for (idx, g) in acc.games.iter().enumerate() {
-                            egui::Frame::none()
-                                .fill(Color32::from_rgba_premultiplied(0, 0, 0, 80))
-                                .rounding(Rounding::same(6.0))
-                                .stroke(Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(255, 255, 255, 25)))
-                                .inner_margin(egui::Margin::symmetric(8.0, 4.0))
-                                .show(ui, |ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.label(RichText::new(&g.name).font(FontId::proportional(12.0)));
-                                        ui.label(RichText::new(format!("({})", g.app_id)).font(FontId::proportional(10.5)).color(Color32::from_rgb(110, 130, 150)));
-                                        if ui.button(RichText::new("✕").font(FontId::proportional(11.0)).color(Color32::from_rgb(255, 120, 120))).clicked() {
-                                            to_remove_idx = Some(idx);
+                    if acc.games.is_empty() {
+                        ui.label(RichText::new("No games added yet. Use store search or manual AppID below to add games.").font(FontId::proportional(11.5)).color(Color32::from_rgb(130, 150, 175)));
+                    } else {
+                        egui::Frame::none()
+                            .fill(Color32::from_rgba_unmultiplied(12, 16, 24, 180))
+                            .rounding(Rounding::same(6.0))
+                            .stroke(Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 20)))
+                            .inner_margin(egui::Margin::symmetric(8.0, 6.0))
+                            .show(ui, |ui| {
+                                ScrollArea::vertical().max_height(160.0).auto_shrink([false, false]).show(ui, |ui| {
+                                    let mut to_remove_idx: Option<usize> = None;
+                                    for (idx, g) in acc.games.iter().enumerate() {
+                                        ui.horizontal(|ui| {
+                                            let img_url = format!("https://cdn.cloudflare.steamstatic.com/steam/apps/{}/capsule_sm_120.jpg", g.app_id);
+                                            ui.add(egui::Image::new(img_url).fit_to_exact_size(Vec2::new(36.0, 18.0)).rounding(Rounding::same(3.0)));
+                                            ui.add_space(4.0);
+                                            ui.label(RichText::new(&g.name).font(FontId::proportional(12.0)).strong());
+                                            ui.label(RichText::new(format!("(AppID: {})", g.app_id)).font(FontId::proportional(10.5)).color(Color32::from_rgb(120, 140, 165)));
+                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                if ui.button(RichText::new("✕ Remove").font(FontId::proportional(11.0)).color(Color32::from_rgb(255, 110, 110))).clicked() {
+                                                    to_remove_idx = Some(idx);
+                                                }
+                                            });
+                                        });
+                                        if idx + 1 < acc.games.len() {
+                                            ui.separator();
                                         }
-                                    });
+                                    }
+                                    if let Some(rem_idx) = to_remove_idx {
+                                        acc.games.remove(rem_idx);
+                                    }
                                 });
-                        }
-                        if let Some(rem_idx) = to_remove_idx {
-                            acc.games.remove(rem_idx);
-                        }
-                    });
+                            });
+                    }
 
                     ui.add_space(8.0);
 
                     // Add Game: Store Search + Custom AppID
                     ui.columns(2, |cols| {
                         cols[0].vertical(|ui| {
-                            ui.label(RichText::new("Steam Mağazasında Ara:").font(FontId::proportional(12.0)));
+                            ui.label(RichText::new("Search Steam Store:").font(FontId::proportional(12.0)));
                             ui.horizontal(|ui| {
-                                ui.add(egui::TextEdit::singleline(&mut self.store_search_query).hint_text("Oyun adı...").desired_width(180.0));
-                                if ui.button("🔍 Ara").clicked() && !self.store_search_query.trim().is_empty() {
+                                ui.add(egui::TextEdit::singleline(&mut self.store_search_query).hint_text("Game name...").desired_width(180.0));
+                                if ui.button("🔍 Search").clicked() && !self.store_search_query.trim().is_empty() {
                                     self.is_searching_store = true;
                                     let q = self.store_search_query.clone();
                                     let results_arc = self.store_search_results.clone();
@@ -183,7 +194,7 @@ impl AccountsView {
                                     for (app_id, name) in results.iter().take(8) {
                                         ui.horizontal(|ui| {
                                             ui.label(RichText::new(name).font(FontId::proportional(11.5)));
-                                            if ui.button("＋ Ekle").clicked() {
+                                            if ui.button("＋ Add").clicked() {
                                                 if !acc.games.iter().any(|g| g.app_id == *app_id) {
                                                     acc.games.push(GameEntry::new(*app_id, name.clone()));
                                                 }
@@ -195,11 +206,11 @@ impl AccountsView {
                         });
 
                         cols[1].vertical(|ui| {
-                            ui.label(RichText::new("Manuel AppID ile Ekle:").font(FontId::proportional(12.0)));
+                            ui.label(RichText::new("Add via Manual AppID:").font(FontId::proportional(12.0)));
                             ui.horizontal(|ui| {
-                                ui.add(egui::TextEdit::singleline(&mut self.custom_appid_input).hint_text("AppID (örn: 730)").desired_width(90.0));
-                                ui.add(egui::TextEdit::singleline(&mut self.custom_appname_input).hint_text("Oyun Adı").desired_width(120.0));
-                                if ui.button("＋ Ekle").clicked() {
+                                ui.add(egui::TextEdit::singleline(&mut self.custom_appid_input).hint_text("AppID (e.g. 730)").desired_width(90.0));
+                                ui.add(egui::TextEdit::singleline(&mut self.custom_appname_input).hint_text("Game Name").desired_width(120.0));
+                                if ui.button("＋ Add").clicked() {
                                     if let Ok(id) = self.custom_appid_input.trim().parse::<u32>() {
                                         let name = if self.custom_appname_input.trim().is_empty() {
                                             format!("AppID {}", id)
@@ -331,24 +342,24 @@ impl AccountsView {
 
                         ui.add_space(12.0);
 
-                        // Status Badge
-                        let (status_text, status_color) = match &status {
-                            AccountStatus::Boosting => ("🟢 Kasıyor", Color32::from_rgb(90, 215, 120)),
-                            AccountStatus::Connecting => ("🟡 Bağlanıyor...", Color32::from_rgb(255, 190, 60)),
-                            AccountStatus::AwaitingSteamGuard { .. } => ("🛡️ Guard Kodu Bekleniyor", Color32::from_rgb(255, 120, 60)),
-                            AccountStatus::PausedForGame { .. } => ("⏸️ Oyundasınız", Color32::from_rgb(255, 200, 70)),
-                            AccountStatus::Reconnecting { .. } => ("🔄 Yeniden Bağlanıyor", Color32::from_rgb(120, 180, 255)),
-                            AccountStatus::Error(_e) => ("🔴 Hata", Color32::from_rgb(255, 90, 90)),
-                            AccountStatus::Idle => ("⚪ Durduruldu", Color32::from_rgb(130, 145, 165)),
+                        // Status Badge with high contrast border and readable text
+                        let (status_text, border_color, text_color) = match &status {
+                            AccountStatus::Boosting => ("🟢 Boosting", Color32::from_rgb(46, 204, 113), Color32::from_rgb(80, 240, 140)),
+                            AccountStatus::Connecting => ("🟡 Connecting...", Color32::from_rgb(255, 190, 60), Color32::from_rgb(255, 215, 100)),
+                            AccountStatus::AwaitingSteamGuard { .. } => ("🛡️ Guard Code Needed", Color32::from_rgb(255, 120, 60), Color32::from_rgb(255, 160, 100)),
+                            AccountStatus::PausedForGame { .. } => ("⏸️ In-Game Paused", Color32::from_rgb(255, 200, 70), Color32::from_rgb(255, 220, 120)),
+                            AccountStatus::Reconnecting { .. } => ("🔄 Reconnecting...", Color32::from_rgb(120, 180, 255), Color32::from_rgb(160, 210, 255)),
+                            AccountStatus::Error(_e) => ("🔴 Error", Color32::from_rgb(255, 90, 90), Color32::from_rgb(255, 130, 130)),
+                            AccountStatus::Idle => ("⚪ Stopped", Color32::from_rgb(130, 145, 165), Color32::from_rgb(170, 185, 205)),
                         };
 
                         egui::Frame::none()
-                            .fill(Color32::from_rgba_premultiplied(status_color.r(), status_color.g(), status_color.b(), 30))
+                            .fill(Color32::from_rgba_unmultiplied(16, 24, 20, 220))
                             .rounding(Rounding::same(12.0))
-                            .inner_margin(egui::Margin::symmetric(10.0, 3.0))
-                            .stroke(Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(status_color.r(), status_color.g(), status_color.b(), 90)))
+                            .inner_margin(egui::Margin::symmetric(10.0, 3.5))
+                            .stroke(Stroke::new(1.0_f32, border_color))
                             .show(ui, |ui| {
-                                ui.label(RichText::new(status_text).font(FontId::proportional(11.5)).color(status_color).strong());
+                                ui.label(RichText::new(status_text).font(FontId::proportional(11.5)).color(text_color).strong());
                             });
 
                         // Right action buttons

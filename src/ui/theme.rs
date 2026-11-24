@@ -1,7 +1,7 @@
 use eframe::egui::{Color32, Context, Frame, Margin, Rounding, Stroke, Visuals};
 use crate::data::{CustomThemeColors, ThemeMode};
 
-/// Manages themes and color schemes including Liquid Glass (Acrylic/Mica/Blur)
+/// Manages themes and color schemes including Transparent Blur (Acrylic/Mica)
 pub struct ThemeEngine;
 
 impl ThemeEngine {
@@ -14,16 +14,16 @@ impl ThemeEngine {
                 // Default to dark for standard gaming aesthetics
                 Visuals::dark()
             }
-            ThemeMode::LiquidGlass => {
+            ThemeMode::Transparent => {
                 let mut v = Visuals::dark();
-                // Liquid glass semi-transparent window background
-                v.panel_fill = Color32::from_rgba_premultiplied(
+                // Semi-transparent window background
+                v.panel_fill = Color32::from_rgba_unmultiplied(
                     colors.surface[0],
                     colors.surface[1],
                     colors.surface[2],
                     colors.glass_alpha,
                 );
-                v.window_fill = Color32::from_rgba_premultiplied(
+                v.window_fill = Color32::from_rgba_unmultiplied(
                     colors.surface[0],
                     colors.surface[1],
                     colors.surface[2],
@@ -37,7 +37,7 @@ impl ThemeEngine {
         let text_c32 = Color32::from_rgb(colors.text[0], colors.text[1], colors.text[2]);
         let surface_c32 = Color32::from_rgb(colors.surface[0], colors.surface[1], colors.surface[2]);
 
-        if mode != ThemeMode::LiquidGlass {
+        if mode != ThemeMode::Transparent {
             visuals.panel_fill = surface_c32;
             visuals.window_fill = Color32::from_rgb(
                 surface_c32.r().saturating_add(6),
@@ -65,14 +65,14 @@ impl ThemeEngine {
     /// Card frame with high contrast border and subtle glass backing
     pub fn card_frame(mode: ThemeMode, colors: &CustomThemeColors) -> Frame {
         let (fill, stroke_color) = match mode {
-            ThemeMode::LiquidGlass => (
-                Color32::from_rgba_premultiplied(
+            ThemeMode::Transparent => (
+                Color32::from_rgba_unmultiplied(
                     colors.surface[0],
                     colors.surface[1],
                     colors.surface[2],
                     colors.glass_alpha.saturating_add(20),
                 ),
-                Color32::from_rgba_premultiplied(255, 255, 255, 38), // 1.0px glass highlight
+                Color32::from_rgba_unmultiplied(255, 255, 255, 38), // 1.0px glass highlight
             ),
             ThemeMode::Light => (
                 Color32::from_rgb(245, 247, 250),
@@ -105,7 +105,7 @@ impl ThemeEngine {
             inner_margin: Margin::same(12.0),
             outer_margin: Margin::symmetric(0.0, 4.0),
             rounding: Rounding::same(8.0),
-            fill: Color32::from_rgba_premultiplied(colors.surface[0], colors.surface[1], colors.surface[2], 220),
+            fill: Color32::from_rgba_unmultiplied(colors.surface[0], colors.surface[1], colors.surface[2], 220),
             stroke: Stroke::new(1.5, accent),
             ..Default::default()
         }
@@ -114,8 +114,8 @@ impl ThemeEngine {
     /// Floating bottom bar frame for inventory bulk selling
     pub fn floating_bar_frame(mode: ThemeMode, colors: &CustomThemeColors) -> Frame {
         let (fill, stroke_color) = match mode {
-            ThemeMode::LiquidGlass => (
-                Color32::from_rgba_premultiplied(
+            ThemeMode::Transparent => (
+                Color32::from_rgba_unmultiplied(
                     colors.surface[0].saturating_add(5),
                     colors.surface[1].saturating_add(5),
                     colors.surface[2].saturating_add(8),
@@ -148,7 +148,7 @@ impl ThemeEngine {
 #[cfg(target_os = "windows")]
 pub fn apply_platform_vibrancy(window: &impl raw_window_handle::HasWindowHandle, mode: ThemeMode, colors: &CustomThemeColors) {
     match mode {
-        ThemeMode::LiquidGlass => {
+        ThemeMode::Transparent => {
             // First attempt Acrylic effect
             let color = Some((colors.surface[0], colors.surface[1], colors.surface[2], colors.glass_alpha));
             if window_vibrancy::apply_acrylic(window, color).is_err() {

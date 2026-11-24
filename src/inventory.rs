@@ -92,7 +92,7 @@ pub fn calculate_seller_receives(gross: f64) -> f64 {
 fn build_http_client(proxy_url: Option<String>) -> reqwest::Client {
     let mut builder = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-        .timeout(Duration::from_secs(12));
+        .timeout(Duration::from_secs(8));
 
     if let Some(proxy_str) = proxy_url.filter(|p| !p.trim().is_empty()) {
         if let Ok(proxy) = reqwest::Proxy::all(&proxy_str) {
@@ -109,75 +109,95 @@ pub async fn fetch_active_drops(steam_id: u64, proxy_url: Option<String>) -> Vec
         return Vec::new();
     }
 
-    let client = build_http_client(proxy_url);
-    let badges_url = format!("https://steamcommunity.com/profiles/{}/badges/?l=turkish", steam_id);
+    let client = build_http_client(proxy_url.clone());
+    let direct_client = build_http_client(None);
+    let badges_url = format!("https://steamcommunity.com/profiles/{}/badges/?l=english", steam_id);
+    let referer = format!("https://steamcommunity.com/profiles/{}/", steam_id);
+
+    let req1 = client.get(&badges_url).header("Referer", &referer);
+    let req2 = direct_client.get(&badges_url).header("Referer", &referer);
+
+    let resp_res = if proxy_url.is_some() {
+        match req1.send().await {
+            Ok(r) => Ok(r),
+            Err(e) => {
+                logger::log_warn(&format!("Proxy failed for badges ({}), falling back to direct connection", e));
+                req2.send().await
+            }
+        }
+    } else {
+        req2.send().await
+    };
 
     let mut result_drops = Vec::new();
 
-    if let Ok(resp) = client.get(&badges_url).send().await {
-        if let Ok(html) = resp.text().await {
-            // Parse badges html for remaining card drops
-            // Typical structure:
-            // <a class="badge_row_overlay" href="https://steamcommunity.com/profiles/.../gamecards/730/">
-            // <div class="badge_title">Counter-Strike 2</div>
-            // <span class="progress_info_bold">3 kart düşürme hakkınız kaldı</span>
-            let rows: Vec<&str> = html.split("class=\"badge_row ").collect();
-            for r in rows.iter().skip(1) {
-                let app_id = if let Some(idx) = r.find("/gamecards/") {
-                    let sub = &r[idx + 11..];
-                    if let Some(end_idx) = sub.find('/') {
-                        sub[..end_idx].parse::<u32>().unwrap_or(0)
+    if let Ok(resp) = resp_res {
+        if resp.status().is_success() {
+            if let Ok(html) = resp.text().await {
+                let rows: Vec<&str> = html.split("class=\"badge_row ").collect();
+                for r in rows.iter().skip(1) {
+                    let app_id = if let Some(idx) = r.find("/gamecards/") {
+                        let sub = &r[idx + 11..];
+                        if let Some(end_idx) = sub.find('/') {
+                            sub[..end_idx].parse::<u32>().unwrap_or(0)
+                        } else {
+                            0
+                        }
                     } else {
                         0
+                    };
+
+                    if app_id == 0 {
+                        continue;
                     }
-                } else {
-                    0
-                };
 
-                if app_id == 0 {
-                    continue;
-                }
-
-                // Extract game name
-                let name = if let Some(title_idx) = r.find("badge_title") {
-                    let sub = &r[title_idx..];
-                    if let Some(start) = sub.find('>') {
-                        let inner = &sub[start + 1..];
-                        if let Some(end) = inner.find('<') {
-                            inner[..end].trim().to_string()
+                    // Extract game name
+                    let name = if let Some(title_idx) = r.find("badge_title") {
+                        let sub = &r[title_idx..];
+                        if let Some(start) = sub.find('>') {
+                            let inner = &sub[start + 1..];
+                            if let Some(end) = inner.find('<') {
+                                inner[..end].trim().to_string()
+                            } else {
+                                format!("AppID {}", app_id)
+                            }
                         } else {
                             format!("AppID {}", app_id)
                         }
                     } else {
                         format!("AppID {}", app_id)
-                    }
-                } else {
-                    format!("AppID {}", app_id)
-                };
+                    };
 
-                // Extract remaining cards
-                let mut remaining: u32 = 0;
-                let patterns = ["kart düşürme hakkınız kaldı", "card drops remaining", "card drop remaining", "kart kaldı"];
-                for pat in &patterns {
-                    if let Some(pos) = r.find(pat) {
-                        let before = &r[..pos];
-                        if let Some(span_start) = before.rfind('>') {
-                            let num_str = before[span_start + 1..].trim();
-                            if let Ok(n) = num_str.parse::<u32>() {
-                                remaining = n;
-                                break;
+                    // Extract remaining cards
+                    let mut remaining: u32 = 0;
+                    let patterns = [
+                        "card drops remaining",
+                        "card drop remaining",
+                        "drops remaining",
+                        "kart düşürme hakkınız kaldı",
+                        "kart kaldı",
+                    ];
+                    for pat in &patterns {
+                        if let Some(pos) = r.find(pat) {
+                            let before = &r[..pos];
+                            if let Some(span_start) = before.rfind('>') {
+                                let num_str = before[span_start + 1..].trim();
+                                if let Ok(n) = num_str.parse::<u32>() {
+                                    remaining = n;
+                                    break;
+                                }
                             }
                         }
                     }
-                }
 
-                if remaining > 0 {
-                    result_drops.push(ActiveDropGame {
-                        app_id,
-                        name: clean_html_entities(&name),
-                        remaining_cards: remaining,
-                        cards_dropped: 0,
-                    });
+                    if remaining > 0 {
+                        result_drops.push(ActiveDropGame {
+                            app_id,
+                            name: clean_html_entities(&name),
+                            remaining_cards: remaining,
+                            cards_dropped: 0,
+                        });
+                    }
                 }
             }
         }
@@ -185,6 +205,7 @@ pub async fn fetch_active_drops(steam_id: u64, proxy_url: Option<String>) -> Vec
 
     // Sort by remaining cards descending
     result_drops.sort_by(|a, b| b.remaining_cards.cmp(&a.remaining_cards));
+    logger::log_info(&format!("Active drops scan for {}: found {} games with card drops", steam_id, result_drops.len()));
     set_cached_active_drops(steam_id, result_drops.clone());
     result_drops
 }
@@ -198,38 +219,65 @@ fn clean_html_entities(s: &str) -> String {
 }
 
 /// Fetch complete inventory items for cards (753), CS2 (730), TF2 (440)
+/// Includes proxy failover and rate-limit mitigation
 pub async fn fetch_detailed_inventory(steam_id: u64, proxy_url: Option<String>) -> Vec<InventoryItem> {
     if steam_id == 0 {
         return Vec::new();
     }
 
-    let client = build_http_client(proxy_url);
+    let client = build_http_client(proxy_url.clone());
+    let direct_client = build_http_client(None);
     let mut items = Vec::new();
+    let referer = format!("https://steamcommunity.com/profiles/{}/inventory", steam_id);
 
-    // Fetch Trading Cards / Steam Community (753/6)
-    let steam_url = format!("https://steamcommunity.com/inventory/{}/753/6?l=turkish&count=500", steam_id);
-    if let Ok(resp) = client.get(&steam_url).send().await {
-        if let Ok(json) = resp.json::<serde_json::Value>().await {
-            parse_inventory_json(&json, &mut items, 753);
+    // Contexts to fetch: 753/6 (Cards/Steam items), 730/2 (CS2), 440/2 (TF2)
+    let endpoints = [
+        (753, 6, "Steam Cards & Community"),
+        (730, 2, "Counter-Strike 2"),
+        (440, 2, "Team Fortress 2"),
+    ];
+
+    for (app_id, context_id, label) in endpoints {
+        let url = format!(
+            "https://steamcommunity.com/inventory/{}/{}/{}?l=english&count=75",
+            steam_id, app_id, context_id
+        );
+
+        let req1 = client
+            .get(&url)
+            .header("Referer", &referer)
+            .header("Accept", "application/json, text/javascript, */*; q=0.01");
+        let req2 = direct_client
+            .get(&url)
+            .header("Referer", &referer)
+            .header("Accept", "application/json, text/javascript, */*; q=0.01");
+
+        let resp_res = if proxy_url.is_some() {
+            match req1.send().await {
+                Ok(r) => Ok(r),
+                Err(e) => {
+                    logger::log_warn(&format!("Proxy failed for {} inventory: {}, falling back to direct", label, e));
+                    req2.send().await
+                }
+            }
+        } else {
+            req2.send().await
+        };
+
+        if let Ok(resp) = resp_res {
+            if resp.status().is_success() {
+                if let Ok(json) = resp.json::<serde_json::Value>().await {
+                    parse_inventory_json(&json, &mut items, app_id);
+                }
+            } else {
+                logger::log_warn(&format!("Steam inventory API returned HTTP {} for {}", resp.status(), label));
+            }
         }
+
+        tokio::time::sleep(Duration::from_millis(300)).await;
     }
 
-    // Fetch CS2 items (730/2)
-    let cs2_url = format!("https://steamcommunity.com/inventory/{}/730/2?l=turkish&count=500", steam_id);
-    if let Ok(resp) = client.get(&cs2_url).send().await {
-        if let Ok(json) = resp.json::<serde_json::Value>().await {
-            parse_inventory_json(&json, &mut items, 730);
-        }
-    }
-
-    // Fetch TF2 items (440/2)
-    let tf2_url = format!("https://steamcommunity.com/inventory/{}/440/2?l=turkish&count=500", steam_id);
-    if let Ok(resp) = client.get(&tf2_url).send().await {
-        if let Ok(json) = resp.json::<serde_json::Value>().await {
-            parse_inventory_json(&json, &mut items, 440);
-        }
-    }
-
+    logger::log_success(&format!("Successfully loaded {} inventory items for SteamID {}", items.len(), steam_id));
     set_cached_detailed_inventory(steam_id, items.clone());
     items
 }

@@ -50,40 +50,40 @@ impl DashboardView {
                 // Stat 1: Active Accounts
                 ThemeEngine::card_frame(theme_mode, colors).show(&mut cols[0], |ui| {
                     ui.vertical(|ui| {
-                        ui.label(RichText::new("👤 Aktif Hesap").font(FontId::proportional(11.0)).color(Color32::from_rgb(140, 160, 180)));
+                        ui.label(RichText::new("👤 Active Accounts").font(FontId::proportional(11.0)).color(Color32::from_rgb(140, 160, 180)));
                         ui.add_space(2.0);
                         ui.label(RichText::new(format!("{}", active_accounts)).font(FontId::proportional(22.0)).color(Color32::from_rgb(90, 210, 120)));
-                        ui.label(RichText::new(format!("Toplam {} hesap", accounts.len())).font(FontId::proportional(10.5)).color(Color32::from_rgb(110, 130, 150)));
+                        ui.label(RichText::new(format!("Total {} accounts", accounts.len())).font(FontId::proportional(10.5)).color(Color32::from_rgb(110, 130, 150)));
                     });
                 });
 
                 // Stat 2: Boosting Games
                 ThemeEngine::card_frame(theme_mode, colors).show(&mut cols[1], |ui| {
                     ui.vertical(|ui| {
-                        ui.label(RichText::new("🎮 Kasılan Oyun").font(FontId::proportional(11.0)).color(Color32::from_rgb(140, 160, 180)));
+                        ui.label(RichText::new("🎮 Boosting Games").font(FontId::proportional(11.0)).color(Color32::from_rgb(140, 160, 180)));
                         ui.add_space(2.0);
                         ui.label(RichText::new(format!("{}", total_boosting_games)).font(FontId::proportional(22.0)).color(accent));
-                        ui.label(RichText::new("Eşzamanlı aktif").font(FontId::proportional(10.5)).color(Color32::from_rgb(110, 130, 150)));
+                        ui.label(RichText::new("Simultaneously active").font(FontId::proportional(10.5)).color(Color32::from_rgb(110, 130, 150)));
                     });
                 });
 
                 // Stat 3: Remaining Card Drops
                 ThemeEngine::card_frame(theme_mode, colors).show(&mut cols[2], |ui| {
                     ui.vertical(|ui| {
-                        ui.label(RichText::new("🃏 Kalan Kart Hakkı").font(FontId::proportional(11.0)).color(Color32::from_rgb(140, 160, 180)));
+                        ui.label(RichText::new("🃏 Remaining Card Drops").font(FontId::proportional(11.0)).color(Color32::from_rgb(140, 160, 180)));
                         ui.add_space(2.0);
                         ui.label(RichText::new(format!("{}", total_cards_left)).font(FontId::proportional(22.0)).color(Color32::from_rgb(255, 185, 60)));
-                        ui.label(RichText::new("Düşürülebilir kart").font(FontId::proportional(10.5)).color(Color32::from_rgb(110, 130, 150)));
+                        ui.label(RichText::new("Eligible drops left").font(FontId::proportional(10.5)).color(Color32::from_rgb(110, 130, 150)));
                     });
                 });
 
                 // Stat 4: Inventory Items / Value
                 ThemeEngine::card_frame(theme_mode, colors).show(&mut cols[3], |ui| {
                     ui.vertical(|ui| {
-                        ui.label(RichText::new("🎒 Envanter Öğeleri").font(FontId::proportional(11.0)).color(Color32::from_rgb(140, 160, 180)));
+                        ui.label(RichText::new("🎒 Inventory Items").font(FontId::proportional(11.0)).color(Color32::from_rgb(140, 160, 180)));
                         ui.add_space(2.0);
                         ui.label(RichText::new(format!("{}", total_items)).font(FontId::proportional(22.0)).color(Color32::from_rgb(180, 140, 240)));
-                        ui.label(RichText::new("Kart & Eşyalar").font(FontId::proportional(10.5)).color(Color32::from_rgb(110, 130, 150)));
+                        ui.label(RichText::new("Cards & Items").font(FontId::proportional(10.5)).color(Color32::from_rgb(110, 130, 150)));
                     });
                 });
             });
@@ -92,7 +92,7 @@ impl DashboardView {
 
             // ─── ACTIVE BOOSTING GAMES SECTION ───
             ui.horizontal(|ui| {
-                ui.label(RichText::new("🚀 Aktif Saat Kasılan Oyunlar").font(FontId::proportional(15.0)).strong());
+                ui.label(RichText::new("🚀 Active Boosting Sessions").font(FontId::proportional(15.0)).strong());
             });
             ui.add_space(6.0);
 
@@ -123,7 +123,7 @@ impl DashboardView {
                             }
 
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.button(RichText::new("⏹ Durdur").font(FontId::proportional(11.5)).color(Color32::from_rgb(255, 120, 120))).clicked() {
+                                if ui.button(RichText::new("⏹ Stop").font(FontId::proportional(11.5)).color(Color32::from_rgb(255, 120, 120))).clicked() {
                                     crate::steam::stop_boost(id, arc.clone());
                                 }
                             });
@@ -131,22 +131,28 @@ impl DashboardView {
 
                         ui.add_space(8.0);
 
-                        // Horizontal list of games with appid and header thumbnails
-                        ui.horizontal_wrapped(|ui| {
+                        // Vertical list of games - each game on its own full-width line (alt alta), never overflows!
+                        ui.vertical(|ui| {
                             for g in &games {
                                 egui::Frame::none()
-                                    .fill(Color32::from_rgba_premultiplied(0, 0, 0, 60))
+                                    .fill(Color32::from_rgba_unmultiplied(14, 18, 26, 180))
                                     .rounding(Rounding::same(6.0))
-                                    .inner_margin(egui::Margin::symmetric(8.0, 4.0))
-                                    .stroke(Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(255, 255, 255, 20)))
+                                    .inner_margin(egui::Margin::symmetric(10.0, 6.0))
+                                    .stroke(Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 20)))
                                     .show(ui, |ui| {
                                         ui.horizontal(|ui| {
                                             let img_url = format!("https://cdn.cloudflare.steamstatic.com/steam/apps/{}/capsule_sm_120.jpg", g.app_id);
-                                            ui.add(egui::Image::new(img_url).fit_to_exact_size(Vec2::new(32.0, 16.0)).rounding(Rounding::same(2.0)));
-                                            ui.label(RichText::new(&g.name).font(FontId::proportional(12.0)));
-                                            ui.label(RichText::new(format!("(AppID: {})", g.app_id)).font(FontId::proportional(10.5)).color(Color32::from_rgb(100, 125, 150)));
+                                            ui.add(egui::Image::new(img_url).fit_to_exact_size(Vec2::new(42.0, 20.0)).rounding(Rounding::same(3.0)));
+                                            ui.add_space(6.0);
+                                            ui.label(RichText::new(&g.name).font(FontId::proportional(12.5)).strong());
+                                            ui.add_space(4.0);
+                                            ui.label(RichText::new(format!("(AppID: {})", g.app_id)).font(FontId::proportional(11.0)).color(Color32::from_rgb(120, 145, 175)));
+                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                ui.label(RichText::new("🟢 Boosting").font(FontId::proportional(11.0)).color(Color32::from_rgb(70, 230, 130)));
+                                            });
                                         });
                                     });
+                                ui.add_space(2.0);
                             }
                         });
                     });
@@ -158,8 +164,8 @@ impl DashboardView {
                 ThemeEngine::card_frame(theme_mode, colors).show(ui, |ui| {
                     ui.vertical_centered(|ui| {
                         ui.add_space(14.0);
-                        ui.label(RichText::new("⚪ Şu anda aktif kasılan oyun bulunmuyor").font(FontId::proportional(13.5)).color(Color32::from_rgb(130, 150, 175)));
-                        ui.label(RichText::new("Hesaplar sekmesinden bir hesap seçip 'Başlat' butonuna basarak saat kasmaya başlayabilirsiniz.").font(FontId::proportional(11.5)).color(Color32::from_rgb(100, 120, 140)));
+                        ui.label(RichText::new("⚪ No accounts currently boosting hours").font(FontId::proportional(13.5)).color(Color32::from_rgb(130, 150, 175)));
+                        ui.label(RichText::new("Select an account from the Accounts tab and click 'Start' to begin boosting.").font(FontId::proportional(11.5)).color(Color32::from_rgb(100, 120, 140)));
                         ui.add_space(14.0);
                     });
                 });
@@ -169,7 +175,7 @@ impl DashboardView {
 
             // ─── BOTTOM LIVE ACTIVITY FEED ───
             ui.horizontal(|ui| {
-                ui.label(RichText::new("📋 Canlı Aktivite Akışı").font(FontId::proportional(14.0)).strong());
+                ui.label(RichText::new("📋 Live Activity Feed").font(FontId::proportional(14.0)).strong());
             });
             ui.add_space(4.0);
 

@@ -81,14 +81,14 @@ impl TopStatusBar {
 
                 // Quick Start / Stop Action Button
                 if any_boosting {
-                    if ui.button(RichText::new("⏹ Hepsini Durdur").font(FontId::proportional(11.5)).color(Color32::from_rgb(255, 120, 120))).clicked() {
+                    if ui.button(RichText::new("⏹ Stop All").font(FontId::proportional(11.5)).color(Color32::from_rgb(255, 120, 120))).clicked() {
                         for arc in accounts {
                             let id = arc.lock().unwrap().id;
                             crate::steam::stop_boost(id, arc.clone());
                         }
                     }
                 } else {
-                    if ui.button(RichText::new("▶ Hepsini Başlat").font(FontId::proportional(11.5)).color(Color32::from_rgb(90, 215, 120))).clicked() {
+                    if ui.button(RichText::new("▶ Start All").font(FontId::proportional(11.5)).color(Color32::from_rgb(90, 215, 120))).clicked() {
                         for arc in accounts {
                             crate::steam::start_boost(arc.clone());
                         }
@@ -103,26 +103,26 @@ impl TopStatusBar {
                 ui.add_space(6.0);
 
                 // Active boosting games count
-                ui.label(RichText::new(format!("🎮 {} Oyun", total_games_count)).font(FontId::proportional(12.0)).color(Color32::from_rgb(140, 165, 190)));
+                ui.label(RichText::new(format!("🎮 {} Games", total_games_count)).font(FontId::proportional(12.0)).color(Color32::from_rgb(140, 165, 190)));
 
                 ui.add_space(10.0);
 
-                // Status Badge
-                let (status_text, status_color) = if any_boosting {
-                    ("🟢 Çevrimiçi (Kasıyor)", Color32::from_rgb(90, 215, 120))
+                // Status Badge with high-contrast text and border
+                let (status_text, border_color, text_color) = if any_boosting {
+                    ("🟢 Online (Boosting)", Color32::from_rgb(46, 204, 113), Color32::from_rgb(80, 240, 140))
                 } else if any_connecting {
-                    ("🟡 Bağlanıyor...", Color32::from_rgb(255, 185, 60))
+                    ("🟡 Connecting...", Color32::from_rgb(255, 185, 60), Color32::from_rgb(255, 210, 100))
                 } else {
-                    ("⚪ Çevrimdışı", Color32::from_rgb(130, 145, 165))
+                    ("⚪ Offline", Color32::from_rgb(130, 145, 165), Color32::from_rgb(170, 185, 205))
                 };
 
                 egui::Frame::none()
-                    .fill(Color32::from_rgba_premultiplied(status_color.r(), status_color.g(), status_color.b(), 30))
+                    .fill(Color32::from_rgba_unmultiplied(16, 24, 20, 220))
                     .rounding(Rounding::same(12.0))
-                    .inner_margin(egui::Margin::symmetric(9.0, 3.0))
-                    .stroke(Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(status_color.r(), status_color.g(), status_color.b(), 90)))
+                    .inner_margin(egui::Margin::symmetric(10.0, 3.5))
+                    .stroke(Stroke::new(1.0_f32, border_color))
                     .show(ui, |ui| {
-                        ui.label(RichText::new(status_text).font(FontId::proportional(11.5)).color(status_color).strong());
+                        ui.label(RichText::new(status_text).font(FontId::proportional(11.5)).color(text_color).strong());
                     });
             });
         });

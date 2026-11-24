@@ -6,7 +6,7 @@ A lightweight, feature-rich multi-account Steam hour booster and trading card id
 
 ## ✨ Features
 
-- **Liquid Glass & Theme Engine**: 4 distinct theme modes (Dark, Light, System, Liquid Glass / Blur) with Windows 11 Acrylic/Mica hardware vibrancy and customizable RGB tint, text, and accent color pickers.
+- **Transparent Glass & Theme Engine**: 4 distinct theme modes (Dark, Light, System, Transparent Glass / Blur) with Windows 11 Acrylic/Mica hardware vibrancy and customizable RGB tint, text, and accent color pickers.
 - **Active Drops & Auto-Switch**: Scans Steam badge data to identify games with remaining card drops (`remaining_cards > 0`), shows remaining card drop badges, and automatically swaps to the next eligible game once a game's drops hit 0.
 - **Inventory Inspection & Bulk Selling**: Game-grouped collapsing headers, Steam CDN item thumbnails, live Steam Community Market prices, gross & net fee calculation (15% Steam/game cut), floating sticky action bar, Quick Sell / Undercut strategies, and 2FA mobile confirmations.
 - **Built with 100% Rust**: Engineered in pure Rust for blazing-fast performance, memory safety, and ultra-low CPU/RAM footprint (~50 MB RAM).

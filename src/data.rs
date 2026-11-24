@@ -80,7 +80,8 @@ pub enum ThemeMode {
     Dark,
     Light,
     System,
-    LiquidGlass,
+    #[serde(alias = "LiquidGlass")]
+    Transparent,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]

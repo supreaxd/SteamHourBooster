@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use eframe::egui::{self, CollapsingHeader, Color32, FontId, RichText, Rounding, ScrollArea, Ui, Vec2};
 use crate::data::{Account, CustomThemeColors, InventoryItem, SellStrategy, ThemeMode};
@@ -10,7 +11,7 @@ pub struct InventoryView {
     pub selected_account_index: usize,
     pub search_query: String,
     pub marketable_only: bool,
-    pub is_refreshing: bool,
+    pub is_refreshing: Arc<AtomicBool>,
     pub selected_asset_ids: HashSet<String>,
     pub sell_strategy: SellStrategy,
 }
@@ -21,7 +22,7 @@ impl InventoryView {
             selected_account_index: 0,
             search_query: String::new(),
             marketable_only: true,
-            is_refreshing: false,
+            is_refreshing: Arc::new(AtomicBool::new(false)),
             selected_asset_ids: HashSet::new(),
             sell_strategy: SellStrategy::QuickSell,
         }
@@ -43,8 +44,8 @@ impl InventoryView {
             ThemeEngine::card_frame(theme_mode, colors).show(ui, |ui| {
                 ui.vertical_centered(|ui| {
                     ui.add_space(20.0);
-                    ui.label(RichText::new("⚠️ Henüz kayıtlı bir Steam hesabı bulunmuyor.").font(FontId::proportional(14.0)).color(Color32::from_rgb(255, 180, 60)));
-                    ui.label(RichText::new("Envanter öğelerini görüntülemek için önce Hesaplar sekmesinden bir hesap ekleyin.").font(FontId::proportional(12.0)).color(Color32::from_rgb(120, 140, 160)));
+                    ui.label(RichText::new("⚠️ No registered Steam accounts found.").font(FontId::proportional(14.0)).color(Color32::from_rgb(255, 180, 60)));
+                    ui.label(RichText::new("Add an account in the Accounts tab first to view its Steam Community inventory.").font(FontId::proportional(12.0)).color(Color32::from_rgb(120, 140, 160)));
                     ui.add_space(20.0);
                 });
             });
@@ -60,11 +61,13 @@ impl InventoryView {
             (a.username.clone(), a.steam_id, a.proxy.clone())
         };
 
+        let is_ref = self.is_refreshing.load(Ordering::SeqCst);
+
         // ─── TOP CONTROL BAR ───
         ThemeEngine::card_frame(theme_mode, colors).show(ui, |ui| {
             ui.horizontal(|ui| {
                 // Account selector
-                ui.label(RichText::new("👤 Hesap:").font(FontId::proportional(12.5)).strong());
+                ui.label(RichText::new("👤 Account:").font(FontId::proportional(12.5)).strong());
                 egui::ComboBox::from_id_salt("inventory_acc_combo")
                     .width(180.0)
                     .selected_text(format!("{} (ID: {})", current_username, current_steam_id))
@@ -81,21 +84,24 @@ impl InventoryView {
 
                 // Search box
                 ui.label(RichText::new("🔍").font(FontId::proportional(13.0)));
-                ui.add(egui::TextEdit::singleline(&mut self.search_query).hint_text("Eşya veya oyun ara...").desired_width(160.0));
+                ui.add(egui::TextEdit::singleline(&mut self.search_query).hint_text("Search items or games...").desired_width(160.0));
 
                 ui.add_space(8.0);
-                ui.checkbox(&mut self.marketable_only, RichText::new(strings.filter_marketable_only).font(FontId::proportional(11.5)));
+                ui.checkbox(&mut self.marketable_only, RichText::new("Marketable Items Only").font(FontId::proportional(11.5)));
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let refresh_label = if self.is_refreshing { "⏳ Yükleniyor..." } else { strings.btn_refresh_inventory };
-                    if ui.button(RichText::new(refresh_label).font(FontId::proportional(12.0))).clicked() && !self.is_refreshing {
-                        self.is_refreshing = true;
+                    let refresh_label = if is_ref { "⏳ Fetching..." } else { "🔄 Refresh Inventory" };
+                    if ui.button(RichText::new(refresh_label).font(FontId::proportional(12.0))).clicked() && !is_ref {
+                        let ref_arc = self.is_refreshing.clone();
+                        ref_arc.store(true, Ordering::SeqCst);
                         let sid = current_steam_id;
                         let proxy = current_proxy.clone();
+                        let ctx_clone = ui.ctx().clone();
                         crate::steam::get_runtime().spawn(async move {
                             let _ = fetch_detailed_inventory(sid, proxy).await;
+                            ref_arc.store(false, Ordering::SeqCst);
+                            ctx_clone.request_repaint();
                         });
-                        self.is_refreshing = false;
                     }
                 });
             });
@@ -125,11 +131,14 @@ impl InventoryView {
             ThemeEngine::card_frame(theme_mode, colors).show(ui, |ui| {
                 ui.vertical_centered(|ui| {
                     ui.add_space(24.0);
-                    if cached_items.is_empty() {
-                        ui.label(RichText::new("🎒 Bu hesap için henüz envanter verisi yüklenmedi.").font(FontId::proportional(14.0)).color(Color32::from_rgb(140, 160, 180)));
-                        ui.label(RichText::new("Steam Topluluk envanterini çekmek için '🔄 Envanteri Yenile' butonuna tıklayın.").font(FontId::proportional(12.0)).color(Color32::from_rgb(110, 130, 150)));
+                    if is_ref {
+                        ui.label(RichText::new("⏳ Fetching inventory items from Steam Community...").font(FontId::proportional(14.0)).color(Color32::from_rgb(140, 180, 240)));
+                        ui.spinner();
+                    } else if cached_items.is_empty() {
+                        ui.label(RichText::new("🎒 No inventory data loaded for this account yet.").font(FontId::proportional(14.0)).color(Color32::from_rgb(140, 160, 180)));
+                        ui.label(RichText::new("Click '🔄 Refresh Inventory' above to fetch items directly from Steam.").font(FontId::proportional(12.0)).color(Color32::from_rgb(110, 130, 150)));
                     } else {
-                        ui.label(RichText::new("Filtrelere uygun eşya bulunamadı.").font(FontId::proportional(13.0)).color(Color32::from_rgb(130, 150, 175)));
+                        ui.label(RichText::new("No items match the current search or filters.").font(FontId::proportional(13.0)).color(Color32::from_rgb(130, 150, 175)));
                     }
                     ui.add_space(24.0);
                 });
@@ -242,19 +251,19 @@ impl InventoryView {
 
                                         ui.vertical(|ui| {
                                             ui.label(
-                                                RichText::new(format!("Satış: ${:.2}", gross))
+                                                RichText::new(format!("Market: ${:.2}", gross))
                                                     .font(FontId::proportional(12.0))
                                                     .color(Color32::from_rgb(90, 215, 120))
                                                     .strong(),
                                             );
                                             ui.label(
-                                                RichText::new(format!("Alacağınız: ${:.2}", net))
+                                                RichText::new(format!("You Get: ${:.2}", net))
                                                     .font(FontId::proportional(10.5))
                                                     .color(Color32::from_rgb(140, 165, 190)),
                                             );
                                         });
                                     } else {
-                                        ui.label(RichText::new("Pazarlanamaz").font(FontId::proportional(11.0)).color(Color32::from_rgb(140, 150, 160)));
+                                        ui.label(RichText::new("Not Marketable").font(FontId::proportional(11.0)).color(Color32::from_rgb(140, 150, 160)));
                                     }
                                 });
                             });
@@ -283,12 +292,12 @@ impl InventoryView {
             ThemeEngine::floating_bar_frame(theme_mode, colors).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
-                        RichText::new(format!("Seçili: {} Öğe", total_count))
+                        RichText::new(format!("Selected: {} Items", total_count))
                             .font(FontId::proportional(14.0))
                             .strong(),
                     );
                     ui.label(
-                        RichText::new(format!("(Brüt: ${:.2}  •  Net: ${:.2})", total_gross, total_net))
+                        RichText::new(format!("(Gross: ${:.2}  •  Net: ${:.2})", total_gross, total_net))
                             .font(FontId::proportional(12.5))
                             .color(Color32::from_rgb(90, 215, 120)),
                     );
@@ -296,26 +305,26 @@ impl InventoryView {
                     ui.add_space(10.0);
 
                     // Strategy selector
-                    ui.label(RichText::new("Strateji:").font(FontId::proportional(11.5)));
+                    ui.label(RichText::new("Strategy:").font(FontId::proportional(11.5)));
                     egui::ComboBox::from_id_salt("bulk_sell_strategy_combo")
                         .width(170.0)
                         .selected_text(match self.sell_strategy {
-                            SellStrategy::QuickSell => strings.strategy_quick_sell,
-                            SellStrategy::Undercut => strings.strategy_undercut,
+                            SellStrategy::QuickSell => "Quick Sell (Highest Buy Order)",
+                            SellStrategy::Undercut => "Undercut (-0.01 Lowest)",
                         })
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.sell_strategy, SellStrategy::QuickSell, strings.strategy_quick_sell);
-                            ui.selectable_value(&mut self.sell_strategy, SellStrategy::Undercut, strings.strategy_undercut);
+                            ui.selectable_value(&mut self.sell_strategy, SellStrategy::QuickSell, "Quick Sell (Highest Buy Order)");
+                            ui.selectable_value(&mut self.sell_strategy, SellStrategy::Undercut, "Undercut (-0.01 Lowest)");
                         });
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        // Highlighted "Seçilenleri Sat" button
-                        if ui.button(RichText::new(strings.btn_sell_selected).font(FontId::proportional(13.5)).color(Color32::WHITE).strong()).clicked() {
+                        // Highlighted "Sell Selected" button
+                        if ui.button(RichText::new("🚀 Sell Selected Items").font(FontId::proportional(13.5)).color(Color32::WHITE).strong()).clicked() {
                             *modal_selected_items = selected_items;
                             *open_sell_modal = true;
                         }
 
-                        if ui.button(RichText::new("Seçimi Temizle").font(FontId::proportional(11.5))).clicked() {
+                        if ui.button(RichText::new("Clear Selection").font(FontId::proportional(11.5))).clicked() {
                             self.selected_asset_ids.clear();
                         }
                     });
