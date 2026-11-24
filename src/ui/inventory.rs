@@ -172,7 +172,7 @@ impl InventoryView {
                 ThemeEngine::card_frame(theme_mode, colors).show(ui, |ui| {
                     let header_id = ui.make_persistent_id(format!("game_group_{}", game_name));
                     CollapsingHeader::new(
-                        RichText::new(format!("🎮 {}  ({} öge • ~${:.2})", game_name, count, est_game_value))
+                        RichText::new(format!("🎮 {}  ({} items • ~${:.2})", game_name, count, est_game_value))
                             .font(FontId::proportional(13.5))
                             .strong(),
                     )

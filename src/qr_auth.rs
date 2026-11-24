@@ -92,7 +92,7 @@ impl QrAuthManager {
                 Ok(r) => r,
                 Err(e) => {
                     let mut s = status_arc.lock().unwrap();
-                    *s = QrAuthStatus::Error(format!("Steam API bağlantı hatası: {}", e));
+                    *s = QrAuthStatus::Error(format!("Steam API connection error: {}", e));
                     return;
                 }
             };
@@ -101,7 +101,7 @@ impl QrAuthManager {
                 Ok(d) => d,
                 Err(e) => {
                     let mut s = status_arc.lock().unwrap();
-                    *s = QrAuthStatus::Error(format!("Yanıt okunamadı: {}", e));
+                    *s = QrAuthStatus::Error(format!("Failed to parse response: {}", e));
                     return;
                 }
             };
@@ -110,7 +110,7 @@ impl QrAuthManager {
                 Some(b) => b,
                 None => {
                     let mut s = status_arc.lock().unwrap();
-                    *s = QrAuthStatus::Error("Steam QR oturumu başlatamadı.".to_string());
+                    *s = QrAuthStatus::Error("Steam failed to initiate QR session.".to_string());
                     return;
                 }
             };
@@ -120,7 +120,7 @@ impl QrAuthManager {
                 Some(serde_json::Value::Number(n)) => n.to_string(),
                 _ => {
                     let mut s = status_arc.lock().unwrap();
-                    *s = QrAuthStatus::Error("Geçersiz client_id.".to_string());
+                    *s = QrAuthStatus::Error("Invalid client_id received.".to_string());
                     return;
                 }
             };
@@ -129,7 +129,7 @@ impl QrAuthManager {
                 Some(url) => url,
                 None => {
                     let mut s = status_arc.lock().unwrap();
-                    *s = QrAuthStatus::Error("challenge_url alınamadı.".to_string());
+                    *s = QrAuthStatus::Error("challenge_url not received.".to_string());
                     return;
                 }
             };
@@ -138,7 +138,7 @@ impl QrAuthManager {
                 Some(req) => req,
                 None => {
                     let mut s = status_arc.lock().unwrap();
-                    *s = QrAuthStatus::Error("request_id alınamadı.".to_string());
+                    *s = QrAuthStatus::Error("request_id not received.".to_string());
                     return;
                 }
             };

@@ -135,7 +135,7 @@ impl ModalManager {
                                     ui.vertical(|ui| {
                                         ui.label(RichText::new("Steam Guard Mobile Confirmation Sent!").font(FontId::proportional(13.5)).strong().color(Color32::from_rgb(90, 240, 150)));
                                         ui.add_space(2.0);
-                                        ui.label(RichText::new("A confirmation notification was sent to your phone's Steam app. Please open Steam -> Confirmations (Onaylar) on your mobile device to approve the market listings.")
+                                        ui.label(RichText::new("A confirmation notification was sent to your phone's Steam app. Please open Steam -> Confirmations on your mobile device to approve the market listings.")
                                             .font(FontId::proportional(11.5)).color(Color32::from_rgb(215, 240, 225)));
                                     });
                                 });

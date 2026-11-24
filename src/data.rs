@@ -173,10 +173,10 @@ impl PersonaState {
     #[allow(dead_code)]
     pub fn label(self) -> &'static str {
         match self {
-            PersonaState::Online => "🟢 Çevrimiçi",
-            PersonaState::Invisible => "👻 Görünmez",
-            PersonaState::Away => "🟡 Uzakta",
-            PersonaState::Busy => "🔴 Meşgul",
+            PersonaState::Online => "🟢 Online",
+            PersonaState::Invisible => "👻 Invisible",
+            PersonaState::Away => "🟡 Away",
+            PersonaState::Busy => "🔴 Busy",
         }
     }
 }
@@ -221,13 +221,13 @@ impl AccountStatus {
     #[allow(dead_code)]
     pub fn label(&self) -> &str {
         match self {
-            AccountStatus::Idle => "Durduruldu",
-            AccountStatus::Connecting => "Bağlanıyor...",
-            AccountStatus::AwaitingSteamGuard { .. } => "🛡️ Steam Guard Kodu Gerekli",
-            AccountStatus::Boosting => "Kasıyor",
-            AccountStatus::PausedForGame { .. } => "⏸️ Duraklatıldı (Oyundasınız)",
-            AccountStatus::Reconnecting { .. } => "🔄 Yeniden Bağlanıyor...",
-            AccountStatus::Error(_) => "Hata",
+            AccountStatus::Idle => "Stopped",
+            AccountStatus::Connecting => "Connecting...",
+            AccountStatus::AwaitingSteamGuard { .. } => "🛡️ Steam Guard Needed",
+            AccountStatus::Boosting => "Boosting",
+            AccountStatus::PausedForGame { .. } => "⏸️ Paused (In-Game)",
+            AccountStatus::Reconnecting { .. } => "🔄 Reconnecting...",
+            AccountStatus::Error(_) => "Error",
         }
     }
 }
@@ -239,6 +239,8 @@ pub struct Account {
     pub password: String,
     pub custom_title: String,
     pub games: Vec<GameEntry>,
+    #[serde(default)]
+    pub owned_games: Vec<GameEntry>,
     #[serde(default)]
     pub refresh_token: Option<String>,
     #[serde(default)]
@@ -270,6 +272,7 @@ impl Account {
             password: String::new(),
             custom_title: String::from("Half-Life 3 (Beta)"),
             games: Vec::new(),
+            owned_games: Vec::new(),
             refresh_token: None,
             shared_secret: None,
             identity_secret: None,

@@ -313,7 +313,7 @@ fn parse_inventory_json(json: &serde_json::Value, items: &mut Vec<InventoryItem>
 
             // Extract tags for game name and item type
             let mut game_name = String::new();
-            let mut item_type = "Eşya".to_string();
+            let mut item_type = "Item".to_string();
 
             if let Some(tags) = desc.get("tags").and_then(|t| t.as_array()) {
                 for tag in tags {
@@ -692,7 +692,7 @@ pub async fn check_inventory_tracker(
     let client = build_http_client(proxy_url);
 
     // 1. Steam Topluluk Envanteri (753/6 - Kartlar, Rozetler)
-    let steam_cards_url = format!("https://steamcommunity.com/inventory/{}/753/6?l=turkish&count=500", steam_id);
+    let steam_cards_url = format!("https://steamcommunity.com/inventory/{}/753/6?l=english&count=500", steam_id);
     let mut card_count = 0;
     if let Ok(resp) = client.get(&steam_cards_url).send().await {
         if let Ok(json) = resp.json::<serde_json::Value>().await {
@@ -703,7 +703,7 @@ pub async fn check_inventory_tracker(
     }
 
     // 2. CS2 Envanteri (730/2)
-    let cs2_url = format!("https://steamcommunity.com/inventory/{}/730/2?l=turkish&count=500", steam_id);
+    let cs2_url = format!("https://steamcommunity.com/inventory/{}/730/2?l=english&count=500", steam_id);
     let mut cs2_count = 0;
     if let Ok(resp) = client.get(&cs2_url).send().await {
         if let Ok(json) = resp.json::<serde_json::Value>().await {
@@ -714,7 +714,7 @@ pub async fn check_inventory_tracker(
     }
 
     // 3. TF2 Envanteri (440/2)
-    let tf2_url = format!("https://steamcommunity.com/inventory/{}/440/2?l=turkish&count=500", steam_id);
+    let tf2_url = format!("https://steamcommunity.com/inventory/{}/440/2?l=english&count=500", steam_id);
     let mut tf2_count = 0;
     if let Ok(resp) = client.get(&tf2_url).send().await {
         if let Ok(json) = resp.json::<serde_json::Value>().await {
@@ -729,7 +729,7 @@ pub async fn check_inventory_tracker(
 
     let old_info = get_account_inventory(steam_id);
     if let Some(ref prev) = old_info {
-        if card_count > prev.card_count {
+        if prev.card_count > 0 && card_count > prev.card_count {
             let diff = card_count - prev.card_count;
             logger::log_success(&format!(
                 "🃏 [CARD DROP] [{}] +{} new trading card(s) dropped! Total: {} cards",
@@ -815,4 +815,88 @@ pub async fn fetch_account_avatar(steam_id: u64, proxy_url: Option<String>) -> O
         }
     }
     None
+}
+
+static OWNED_GAMES_CACHE: OnceLock<Mutex<HashMap<u64, Vec<crate::data::GameEntry>>>> = OnceLock::new();
+
+fn get_owned_games_cache() -> &'static Mutex<HashMap<u64, Vec<crate::data::GameEntry>>> {
+    OWNED_GAMES_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub fn store_owned_games_cache(steam_id: u64, games: Vec<crate::data::GameEntry>) {
+    if let Ok(mut c) = get_owned_games_cache().lock() {
+        c.insert(steam_id, games);
+    }
+}
+
+pub fn get_cached_owned_games(steam_id: u64) -> Vec<crate::data::GameEntry> {
+    if let Ok(c) = get_owned_games_cache().lock() {
+        if let Some(games) = c.get(&steam_id) {
+            return games.clone();
+        }
+    }
+    Vec::new()
+}
+
+/// Asynchronously fetch games owned by the account
+pub async fn fetch_account_owned_games(
+    steam_id: u64,
+    proxy_url: Option<String>,
+) -> Vec<crate::data::GameEntry> {
+    if steam_id == 0 {
+        return Vec::new();
+    }
+
+    // 1. Check existing in-memory cache first
+    let cached = get_cached_owned_games(steam_id);
+    if !cached.is_empty() {
+        return cached;
+    }
+
+    // 2. Fetch badges page (all games with badges are owned games)
+    let drops = fetch_active_drops(steam_id, proxy_url.clone()).await;
+    let mut games_map: HashMap<u32, String> = HashMap::new();
+
+    for d in drops {
+        games_map.insert(d.app_id, d.name);
+    }
+
+    // 3. Query Steam Community user profile games or XML if public
+    let client = build_http_client(proxy_url);
+    let xml_url = format!("https://steamcommunity.com/profiles/{}/games/?tab=all&xml=1", steam_id);
+    if let Ok(resp) = client.get(&xml_url).send().await {
+        if let Ok(body) = resp.text().await {
+            // Parse <game><appID>...</appID><name>...</name></game>
+            for block in body.split("<game>") {
+                if let (Some(id_start), Some(name_start)) = (block.find("<appID>"), block.find("<name>")) {
+                    let id_str = block[id_start + 7..].split("</appID>").next().unwrap_or("");
+                    let name_str = block[name_start + 6..].split("</name>").next().unwrap_or("");
+                    if let Ok(appid) = id_str.trim().parse::<u32>() {
+                        let clean_name = name_str
+                            .trim()
+                            .replace("<![CDATA[", "")
+                            .replace("]]>", "")
+                            .trim()
+                            .to_string();
+                        if !clean_name.is_empty() {
+                            games_map.entry(appid).or_insert(clean_name);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut result: Vec<crate::data::GameEntry> = games_map
+        .into_iter()
+        .map(|(app_id, name)| crate::data::GameEntry::new(app_id, name))
+        .collect();
+
+    result.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+
+    if !result.is_empty() {
+        store_owned_games_cache(steam_id, result.clone());
+    }
+
+    result
 }

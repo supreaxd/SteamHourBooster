@@ -170,10 +170,10 @@ pub fn start_account_remote(target: &str) -> Result<String, String> {
         };
         if user == target_l || id.to_string() == target_l {
             crate::steam::start_boost(arc.clone());
-            return Ok(format!("▶️ `{}` başlatıldı.", target));
+            return Ok(format!("▶️ `{}` started.", target));
         }
     }
-    Err(format!("❌ `{}` hesabı bulunamadı.", target))
+    Err(format!("❌ Account `{}` not found.", target))
 }
 
 pub fn stop_account_remote(target: &str) -> Result<String, String> {
@@ -186,10 +186,10 @@ pub fn stop_account_remote(target: &str) -> Result<String, String> {
         };
         if user == target_l || id.to_string() == target_l {
             crate::steam::stop_boost(id, arc.clone());
-            return Ok(format!("⏹️ `{}` durduruldu.", target));
+            return Ok(format!("⏹️ `{}` stopped.", target));
         }
     }
-    Err(format!("❌ `{}` hesabı bulunamadı.", target))
+    Err(format!("❌ Account `{}` not found.", target))
 }
 
 pub fn restart_account_remote(target: &str) -> Result<String, String> {
@@ -202,10 +202,10 @@ pub fn restart_account_remote(target: &str) -> Result<String, String> {
         };
         if user == target_l || id.to_string() == target_l {
             crate::steam::restart_boost(id, arc.clone());
-            return Ok(format!("🔄 `{}` yeniden başlatılıyor...", target));
+            return Ok(format!("🔄 `{}` restarting...", target));
         }
     }
-    Err(format!("❌ `{}` hesabı bulunamadı.", target))
+    Err(format!("❌ Account `{}` not found.", target))
 }
 
 pub fn add_account_remote(
@@ -215,7 +215,7 @@ pub fn add_account_remote(
     shared_secret: Option<&str>,
 ) -> Result<u64, String> {
     if user.trim().is_empty() {
-        return Err("Kullanıcı adı boş olamaz".to_string());
+        return Err("Username cannot be empty".to_string());
     }
 
     let mut config = crate::data::AppConfig::load();
@@ -293,9 +293,9 @@ pub fn delete_account_remote(target: &str) -> Result<String, String> {
             });
         }
         logger::log_info(&format!("🗑️ Remote deleted account: {} (ID: {})", removed_name, id));
-        Ok(format!("🗑️ `{}` hesabı başarıyla silindi.", removed_name))
+        Ok(format!("🗑️ `{}` account was successfully deleted.", removed_name))
     } else {
-        Err(format!("❌ `{}` hesabı bulunamadı.", target))
+        Err(format!("❌ Account `{}` not found.", target))
     }
 }
 
@@ -316,7 +316,7 @@ pub fn add_game_remote(target: &str, app_id: u32, name: &str) -> Result<String, 
     for a in &mut config.accounts {
         if a.username.to_lowercase() == target_l || a.id.to_string() == target_l {
             if a.games.iter().any(|g| g.app_id == app_id) {
-                return Err(format!("⚠️ Oyun zaten listede: `{}` ({})", game_name, app_id));
+                return Err(format!("⚠️ Game already in list: `{}` ({})", game_name, app_id));
             }
             a.games.push(crate::data::GameEntry::new(app_id, &game_name));
             found = true;
@@ -338,9 +338,9 @@ pub fn add_game_remote(target: &str, app_id: u32, name: &str) -> Result<String, 
                 }
             }
         }
-        Ok(format!("🎮 `{}` hesaba eklendi: `{}` ({})", target, game_name, app_id))
+        Ok(format!("🎮 Added to `{}`: `{}` ({})", target, game_name, app_id))
     } else {
-        Err(format!("❌ `{}` hesabı bulunamadı.", target))
+        Err(format!("❌ Account `{}` not found.", target))
     }
 }
 
@@ -373,9 +373,9 @@ pub fn remove_game_remote(target: &str, app_id: u32) -> Result<String, String> {
                 }
             }
         }
-        Ok(format!("🗑️ `{}` hesaptan çıkarıldı: `{}` ({})", target, removed_title, app_id))
+        Ok(format!("🗑️ Removed from `{}`: `{}` ({})", target, removed_title, app_id))
     } else {
-        Err(format!("❌ Oyun veya hesap bulunamadı."))
+        Err(format!("❌ Game or account not found."))
     }
 }
 
@@ -390,11 +390,11 @@ pub fn submit_guard_remote(target: &str, code: &str) -> Result<String, String> {
             };
             if user == target_l || id.to_string() == target_l {
                 crate::steam::submit_guard_code(id, code);
-                return Ok(format!("🛡️ `{}` hesabı için Steam Guard kodu iletildi.", target));
+                return Ok(format!("🛡️ Steam Guard code submitted for `{}`.", target));
             }
         }
     }
-    Err(format!("❌ `{}` hesabı bulunamadı.", target))
+    Err(format!("❌ Account `{}` not found.", target))
 }
 
 pub async fn search_steam_games(query: &str) -> Vec<Value> {
@@ -492,17 +492,17 @@ async fn handle_bot_command(command: &str) -> (String, Option<String>) {
                     • `/search <game>` — Search Steam Store games\n\
                     • `/addgame <account> <appid>` — Add game to account\n\
                     • `/removegame <account> <appid>` — Remove game\n\
-                    • `/guard <account> <code>` — Submit Steam Guard code".to_string(),
+                    • `".to_string(),
 
                 Language::Turkish => "🤖 *SupBooster Telegram Bot*\n\n\
-                    • `/status` — Hesapların anlık durumunu göster\n\
-                    • `/start_all` / `/stop_all` — Tüm hesapları başlat / durdur\n\
-                    • `/cards` — Düşen Steam koleksiyon kartları\n\
-                    • `/games <hesap>` — Hesabın kasılan oyun listesi\n\
-                    • `/search <oyun>` — Steam mağazasında oyun ara\n\
-                    • `/addgame <hesap> <appid>` — Hesaba oyun ekle\n\
-                    • `/removegame <hesap> <appid>` — Hesaptan oyun çıkar\n\
-                    • `/guard <hesap> <kod>` — Steam Guard kodunu gir".to_string(),
+                    • `/status` — Show live account statuses\n\
+                    • `/start_all` / `/stop_all` — Start or stop all accounts\n\
+                    • `/cards` — Dropped Steam trading cards\n\
+                    • `/games <account>` — List games boosted on account\n\
+                    • `/search <game>` — Search Steam store for games\n\
+                    • `/addgame <account> <appid>` — Add game to account\n\
+                    • `/removegame <account> <appid>` — Remove game from account\n\
+                    • `".to_string(),
 
                 Language::Russian => "🤖 *SupBooster Telegram Bot*\n\n\
                     • `/status` — Статус аккаунтов\n\
@@ -512,7 +512,7 @@ async fn handle_bot_command(command: &str) -> (String, Option<String>) {
                     • `/search <игра>` — Поиск игр в Steam\n\
                     • `/addgame <аккаунт> <appid>` — Добавить игру\n\
                     • `/removegame <аккаунт> <appid>` — Удалить игру\n\
-                    • `/guard <аккаунт> <код>` — Ввести код Steam Guard".to_string(),
+                    • `".to_string(),
             };
             (msg, None)
         }
@@ -527,14 +527,14 @@ async fn handle_bot_command(command: &str) -> (String, Option<String>) {
                 return (
                     match lang {
                         Language::English => "⚠️ No accounts added yet.".to_string(),
-                        Language::Turkish => "⚠️ Henüz eklenmiş hesap yok.".to_string(),
+                        Language::Turkish => "⚠️ No accounts added yet.".to_string(),
                         Language::Russian => "⚠️ Нет добавленных аккаунтов.".to_string(),
                     },
                     None,
                 );
             }
 
-            let mut out = String::from("📋 *SteamBooster Hesap Durumları:*\n\n");
+            let mut out = String::from("📋 *SteamBooster Account Statuses:*\n\n");
             for (idx, arc) in accounts.iter().enumerate() {
                 let a = arc.lock().unwrap();
                 let status_icon = match &a.status {
@@ -547,17 +547,17 @@ async fn handle_bot_command(command: &str) -> (String, Option<String>) {
                     AccountStatus::Idle => "⚪",
                 };
                 let status_text = match &a.status {
-                    AccountStatus::Boosting => "Kasılıyor",
-                    AccountStatus::Connecting => "Bağlanıyor...",
-                    AccountStatus::AwaitingSteamGuard { hint } => &format!("Guard Bekleniyor ({})", hint),
-                    AccountStatus::PausedForGame { app_name, .. } => &format!("Oyundasınız: {}", app_name),
-                    AccountStatus::Reconnecting { attempt, .. } => &format!("Yeniden bağlanıyor (Deneme {})", attempt),
-                    AccountStatus::Error(e) => &format!("Hata: {}", e),
-                    AccountStatus::Idle => "Durduruldu",
+                    AccountStatus::Boosting => "Boosting",
+                    AccountStatus::Connecting => "Connecting...",
+                    AccountStatus::AwaitingSteamGuard { hint } => &format!("Guard Code Needed ({})", hint),
+                    AccountStatus::PausedForGame { app_name, .. } => &format!("In-Game: {}", app_name),
+                    AccountStatus::Reconnecting { attempt, .. } => &format!("Reconnecting (Attempt {})", attempt),
+                    AccountStatus::Error(e) => &format!("Error: {}", e),
+                    AccountStatus::Idle => "Stopped",
                 };
 
                 out.push_str(&format!(
-                    "{}. {} *{}* (ID: `{}`)\n   └ Durum: {} | Saat: `{:.1}h` | Oyun: `{}`\n",
+                    "{}. {} *{}* (ID: `{}`)\n   └ Status: {} | Boosted: `{:.1}h` | Games: `{}`\n",
                     idx + 1,
                     status_icon,
                     a.username,
@@ -575,7 +575,7 @@ async fn handle_bot_command(command: &str) -> (String, Option<String>) {
             (
                 match lang {
                     Language::English => "▶️ Boost started for all accounts.".to_string(),
-                    Language::Turkish => "▶️ Tüm hesaplar için boost başlatıldı.".to_string(),
+                    Language::Turkish => "▶️ Boost started for all accounts.".to_string(),
                     Language::Russian => "▶️ Буст запущен для всех аккаунтов.".to_string(),
                 },
                 None,
@@ -587,7 +587,7 @@ async fn handle_bot_command(command: &str) -> (String, Option<String>) {
             (
                 match lang {
                     Language::English => "⏹️ Boost stopped for all accounts.".to_string(),
-                    Language::Turkish => "⏹️ Tüm hesaplar durduruldu.".to_string(),
+                    Language::Turkish => "⏹️ Boost stopped for all accounts.".to_string(),
                     Language::Russian => "⏹️ Все аккаунты остановлены.".to_string(),
                 },
                 None,
@@ -599,7 +599,7 @@ async fn handle_bot_command(command: &str) -> (String, Option<String>) {
             (
                 match lang {
                     Language::English => "🔄 Restarting boost for all accounts...".to_string(),
-                    Language::Turkish => "🔄 Tüm hesaplar yeniden başlatılıyor...".to_string(),
+                    Language::Turkish => "🔄 Restarting boost for all accounts...".to_string(),
                     Language::Russian => "🔄 Перезапуск всех аккаунтов...".to_string(),
                 },
                 None,
@@ -625,10 +625,10 @@ async fn handle_bot_command(command: &str) -> (String, Option<String>) {
             let pass = parts[2];
             match add_account_remote(user, pass, None, None) {
                 Ok(id) => (
-                    format!("✅ `{}` hesabı başarıyla eklendi! (ID: `{}`)\nBaşlatmak için: `/start {}`", user, id, user),
+                    format!("✅ `{}` account successfully added! (ID: `{}`)\nTo start: `/start {}`", user, id, user),
                     None,
                 ),
-                Err(e) => (format!("❌ Hesap eklenemedi: {}", e), None),
+                Err(e) => (format!("❌ Failed to add account: {}", e), None),
             }
         }
 
@@ -646,7 +646,7 @@ async fn handle_bot_command(command: &str) -> (String, Option<String>) {
                 let a = arc.lock().unwrap();
                 if a.username.to_lowercase() == target || a.id.to_string() == target {
                     if a.games.is_empty() {
-                        return (format!("🎮 *{}* hesabında kayıtlı oyun yok.\nOyun eklemek için: `/addgame {} <appid>`", a.username, a.username), None);
+                        return (format!("🎮 *{}* has no games added.\nTo add game: `/addgame {} <appid>`", a.username, a.username), None);
                     }
                     let mut list = format!("🎮 *{}* Oyun Listesi (Toplam: {}):\n\n", a.username, a.games.len());
                     for (i, g) in a.games.iter().enumerate() {
@@ -655,20 +655,20 @@ async fn handle_bot_command(command: &str) -> (String, Option<String>) {
                     return (list, None);
                 }
             }
-            (format!("❌ `{}` hesabı bulunamadı.", parts[1]), None)
+            (format!("❌ Account `{}` not found.", parts[1]), None)
         }
 
         "/search" if parts.len() > 1 => {
             let query = parts[1..].join(" ");
             let results = search_steam_games(&query).await;
             if results.is_empty() {
-                return (format!("🔍 `{}` için Steam'de sonuç bulunamadı.", query), None);
+                return (format!("🔍 No results found on Steam for `{}`.", query), None);
             }
-            let mut reply = format!("🔍 *\"{}\"* Arama Sonuçları:\n\n", query);
+            let mut reply = format!("🔍 *\"{}\"* Search Results:\n\n", query);
             for item in results.iter().take(8) {
                 let id = item.get("app_id").and_then(|v| v.as_u64()).unwrap_or(0);
                 let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
-                reply.push_str(&format!("• *{}* — AppID: `{}`\n  └ Ekleme: `/addgame <hesap> {}`\n", name, id, id));
+                reply.push_str(&format!("• *{}* — AppID: `{}`\n  └ To add: `/addgame <account> {}`\n", name, id, id));
             }
             (reply, None)
         }
@@ -681,7 +681,7 @@ async fn handle_bot_command(command: &str) -> (String, Option<String>) {
                     Err(e) => (e, None),
                 }
             } else {
-                ("❌ Geçersiz AppID. Örnek: `/addgame user1 730`".to_string(), None)
+                ("❌ Invalid AppID. Example: `/addgame user1 730`".to_string(), None)
             }
         }
 
@@ -693,7 +693,7 @@ async fn handle_bot_command(command: &str) -> (String, Option<String>) {
                     Err(e) => (e, None),
                 }
             } else {
-                ("❌ Geçersiz AppID. Örnek: `/removegame user1 730`".to_string(), None)
+                ("❌ Invalid AppID. Example: `/removegame user1 730`".to_string(), None)
             }
         }
 
@@ -709,13 +709,13 @@ async fn handle_bot_command(command: &str) -> (String, Option<String>) {
         "/cards" => {
             let cards = crate::inventory::get_recent_card_drops();
             if cards.is_empty() {
-                return ("🃏 Henüz düşen koleksiyon kartı kaydedilmedi.".to_string(), None);
+                return ("🃏 No dropped cards recorded yet.".to_string(), None);
             }
-            let mut msg = format!("🃏 *Son Düşen Koleksiyon Kartları ({})*:\n\n", cards.len());
+            let mut msg = format!("🃏 *Recently Dropped Trading Cards ({})*:\n\n", cards.len());
             for c in cards.iter().rev().take(10) {
                 let price_str = if c.market_price.is_empty() { "-" } else { &c.market_price };
                 msg.push_str(&format!(
-                    "• *{}* — `{}` hesabı\n  └ Kart: *{}* (Fiyat: `{}`)\n",
+                    "• *{}* — Account `{}`\n  └ Card: *{}* (Price: `{}`)\n",
                     c.game_name, c.username, c.card_name, price_str
                 ));
             }
@@ -725,7 +725,7 @@ async fn handle_bot_command(command: &str) -> (String, Option<String>) {
         _ => {
             let msg = match lang {
                 Language::English => "❓ Unknown command. Type `/help` for available commands.".to_string(),
-                Language::Turkish => "❓ Bilinmeyen komut. Komut listesi için `/help` yazabilirsiniz.".to_string(),
+                Language::Turkish => "❓ Unknown command. Type `/help` for available commands.".to_string(),
                 Language::Russian => "❓ Неизвестная команда. Введите `/help` для списка команд.".to_string(),
             };
             (msg, None)
@@ -774,7 +774,7 @@ async fn send_telegram_reply(
                 "inline_keyboard": [
                     [
                         {
-                            "text": "🚀 Mini App'i Aç",
+                            "text": "🚀 Open Mini App",
                             "web_app": { "url": app_url }
                         }
                     ]
@@ -785,7 +785,7 @@ async fn send_telegram_reply(
                 "inline_keyboard": [
                     [
                         {
-                            "text": "🌐 Web Panelini Aç",
+                            "text": "🌐 Open Web Panel",
                             "url": app_url
                         }
                     ]

@@ -15,6 +15,8 @@ pub struct AccountsView {
     pub is_searching_store: Arc<std::sync::atomic::AtomicBool>,
     pub custom_appid_input: String,
     pub custom_appname_input: String,
+    pub owned_games_filter: String,
+    pub is_refreshing_owned_games: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl AccountsView {
@@ -29,6 +31,8 @@ impl AccountsView {
             is_searching_store: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             custom_appid_input: String::new(),
             custom_appname_input: String::new(),
+            owned_games_filter: String::new(),
+            is_refreshing_owned_games: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -282,6 +286,123 @@ impl AccountsView {
                         });
                     });
 
+                    ui.add_space(10.0);
+                    ui.separator();
+                    ui.add_space(6.0);
+
+                    // ─── ACCOUNT OWNED GAMES (LIBRARY) ───
+                    // Automatically load from cache if acc.owned_games is empty but cache has them
+                    if acc.owned_games.is_empty() && acc.steam_id > 0 {
+                        let cached = crate::inventory::get_cached_owned_games(acc.steam_id);
+                        if !cached.is_empty() {
+                            acc.owned_games = cached;
+                        }
+                    }
+
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("🎮 Account Owned Games (Library)").font(FontId::proportional(13.0)).strong());
+                        ui.label(RichText::new(format!("({} games)", acc.owned_games.len())).font(FontId::proportional(11.0)).color(Color32::from_rgb(130, 150, 175)));
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let is_refreshing = self.is_refreshing_owned_games.load(std::sync::atomic::Ordering::Relaxed);
+                            if is_refreshing {
+                                ui.spinner();
+                                ui.label(RichText::new("Refreshing...").font(FontId::proportional(11.0)).color(Color32::from_rgb(130, 150, 175)));
+                            } else {
+                                if ui.button(RichText::new("🔄 Refresh Games").font(FontId::proportional(11.5)).color(accent)).clicked() {
+                                    let s_id = acc.steam_id;
+                                    let p_url = acc.proxy.clone();
+                                    let flag = self.is_refreshing_owned_games.clone();
+                                    flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                                    crate::steam::get_runtime().spawn(async move {
+                                        let fresh_games = crate::inventory::fetch_account_owned_games(s_id, p_url).await;
+                                        crate::inventory::store_owned_games_cache(s_id, fresh_games);
+                                        flag.store(false, std::sync::atomic::Ordering::Relaxed);
+                                    });
+                                }
+                            }
+                        });
+                    });
+
+                    ui.add_space(4.0);
+
+                    // Filter search input for owned games
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("🔍").font(FontId::proportional(12.0)));
+                        ui.add(egui::TextEdit::singleline(&mut self.owned_games_filter)
+                            .hint_text("Filter owned games by name or AppID...")
+                            .desired_width(f32::INFINITY));
+                    });
+
+                    ui.add_space(4.0);
+
+                    if acc.owned_games.is_empty() {
+                        egui::Frame::none()
+                            .fill(Color32::from_rgba_unmultiplied(20, 26, 36, 180))
+                            .rounding(Rounding::same(6.0))
+                            .inner_margin(egui::Margin::symmetric(10.0, 8.0))
+                            .show(ui, |ui| {
+                                ui.label(RichText::new("ℹ️ No owned games found yet. Click '🔄 Refresh Games' to load your library, or start boosting once to sync automatically via Steam.").font(FontId::proportional(11.0)).color(Color32::from_rgb(140, 160, 185)));
+                            });
+                    } else {
+                        let filter = self.owned_games_filter.trim().to_lowercase();
+                        let filtered_games: Vec<GameEntry> = acc.owned_games
+                            .iter()
+                            .filter(|g| {
+                                if filter.is_empty() {
+                                    true
+                                } else {
+                                    g.name.to_lowercase().contains(&filter) || g.app_id.to_string().contains(&filter)
+                                }
+                            })
+                            .cloned()
+                            .collect();
+
+                        egui::Frame::none()
+                            .fill(Color32::from_rgba_unmultiplied(15, 20, 28, 200))
+                            .rounding(Rounding::same(6.0))
+                            .stroke(Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 12)))
+                            .inner_margin(egui::Margin::symmetric(8.0, 6.0))
+                            .show(ui, |ui| {
+                                ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
+                                    let mut to_add_game: Option<GameEntry> = None;
+                                    let mut to_remove_id: Option<u32> = None;
+
+                                    for game in filtered_games.iter().take(80) {
+                                        let is_in_boost = acc.games.iter().any(|g| g.app_id == game.app_id);
+                                        let img_url = format!("https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{}/capsule_231x87.jpg", game.app_id);
+
+                                        ui.horizontal(|ui| {
+                                            ui.add(egui::Image::new(&img_url).fit_to_exact_size(Vec2::new(42.0, 20.0)).rounding(Rounding::same(3.0)));
+                                            ui.label(RichText::new(&game.name).font(FontId::proportional(12.0)));
+                                            ui.label(RichText::new(format!("({})", game.app_id)).font(FontId::proportional(10.0)).color(Color32::from_rgb(120, 140, 165)));
+
+                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                if is_in_boost {
+                                                    if ui.button(RichText::new("✕ Remove").font(FontId::proportional(10.5)).color(Color32::from_rgb(255, 120, 120))).clicked() {
+                                                        to_remove_id = Some(game.app_id);
+                                                    }
+                                                    ui.label(RichText::new("✓ Boosting").font(FontId::proportional(11.0)).color(Color32::from_rgb(90, 220, 130)).strong());
+                                                } else {
+                                                    if ui.button(RichText::new("＋ Add to Boost").font(FontId::proportional(11.0)).color(Color32::from_rgb(90, 200, 255))).clicked() {
+                                                        to_add_game = Some(game.clone());
+                                                    }
+                                                }
+                                            });
+                                        });
+                                        ui.separator();
+                                    }
+
+                                    if let Some(g) = to_add_game {
+                                        acc.games.push(g);
+                                    }
+                                    if let Some(rem_id) = to_remove_id {
+                                        acc.games.retain(|g| g.app_id != rem_id);
+                                    }
+                                });
+                            });
+                    }
+
                     ui.add_space(14.0);
 
                     // Action buttons: Save & Cancel
@@ -409,9 +530,9 @@ impl AccountsView {
                             ui.label(RichText::new(&acc.username).font(FontId::proportional(14.0)).strong());
                             ui.horizontal(|ui| {
                                 ui.label(RichText::new(format!("⏱ {:.1}h", hours)).font(FontId::proportional(11.0)).color(Color32::from_rgb(120, 140, 160)));
-                                ui.label(RichText::new(format!("• 🎮 {} oyun", acc.games.len())).font(FontId::proportional(11.0)).color(Color32::from_rgb(120, 140, 160)));
+                                ui.label(RichText::new(format!("• 🎮 {} games", acc.games.len())).font(FontId::proportional(11.0)).color(Color32::from_rgb(120, 140, 160)));
                                 if acc.identity_secret.is_some() {
-                                    ui.label(RichText::new("• 📱 2FA Hazır").font(FontId::proportional(10.5)).color(Color32::from_rgb(80, 200, 120)));
+                                    ui.label(RichText::new("• 📱 2FA Ready").font(FontId::proportional(10.5)).color(Color32::from_rgb(80, 200, 120)));
                                 }
                             });
                         });
@@ -466,10 +587,10 @@ impl AccountsView {
                     if let AccountStatus::AwaitingSteamGuard { ref hint } = status {
                         ui.add_space(4.0);
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new(format!("🛡️ Steam Guard Kodu Gerekli ({}):", hint)).font(FontId::proportional(11.5)).color(Color32::from_rgb(255, 175, 50)));
+                            ui.label(RichText::new(format!("🛡️ Steam Guard Code Required ({}):", hint)).font(FontId::proportional(11.5)).color(Color32::from_rgb(255, 175, 50)));
                             let guard_input = self.guard_inputs.entry(acc.id).or_insert_with(String::new);
                             ui.add(egui::TextEdit::singleline(guard_input).desired_width(100.0));
-                            if ui.button("✓ Gönder").clicked() && !guard_input.trim().is_empty() {
+                            if ui.button("✓ Submit").clicked() && !guard_input.trim().is_empty() {
                                 let code = guard_input.trim().to_string();
                                 crate::steam::submit_guard_code(acc.id, &code);
                                 guard_input.clear();

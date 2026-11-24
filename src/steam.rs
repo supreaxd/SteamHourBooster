@@ -146,7 +146,7 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
 
     if username.trim().is_empty() {
         let mut a = account.lock().unwrap();
-        a.status = AccountStatus::Error("Kullanıcı adı boş!".to_string());
+        a.status = AccountStatus::Error("Username cannot be empty!".to_string());
         return;
     }
 
@@ -165,6 +165,10 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
 
     {
         let mut workers = get_workers().lock().unwrap();
+        if let Some(old_worker) = workers.remove(&id) {
+            let _ = old_worker.stop_tx.send(true);
+            let _ = old_worker.cmd_tx.send(BoostCommand::Stop);
+        }
         workers.insert(
             id,
             ActiveWorker {
@@ -262,7 +266,7 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
                                 let mut a = acc_g.lock().unwrap();
                                 if matches!(a.status, AccountStatus::Connecting) {
                                     a.status = AccountStatus::AwaitingSteamGuard {
-                                        hint: "Steam Guard kodunu girin veya mobil uygulamadan onaylayın.".into(),
+                                        hint: "Enter Steam Guard code or approve via mobile app.".into(),
                                     };
                                 }
                             }
@@ -356,13 +360,25 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
                 a.steam_id = my_steam_id;
             }
 
-            // Ücretsiz lisansları talep et (Oyunların kütüphanede lisansının olduğundan emin olmak için)
-            let free_appids: Vec<u32> = current_games.iter().map(|g| g.app_id).collect();
-            if !free_appids.is_empty() {
-                let claimed = crate::free_games::claim_free_licenses(&connection, &username, free_appids).await;
-                if !claimed.is_empty() {
-                    debug_log::log_packet(&username, PacketDirection::Outbound, "RequestFreeLicense", &format!("{:?}", claimed), PacketCategory::License);
+            // Query Steam player service for all owned games in the library
+            let owned_games_req = steam_vent_proto_steam::steammessages_player_steamclient::CPlayer_GetOwnedGames_Request {
+                steamid: Some(my_steam_id),
+                include_appinfo: Some(true),
+                include_played_free_games: Some(true),
+                ..Default::default()
+            };
+            if let Ok(owned_resp) = connection.service_method(owned_games_req).await {
+                let mut owned: Vec<GameEntry> = owned_resp.games.into_iter().map(|g| {
+                    let name = g.name.clone().unwrap_or_else(|| format!("AppID {}", g.appid()));
+                    GameEntry::new(g.appid() as u32, name)
+                }).collect();
+                owned.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+                logger::log_success(&format!("[{}] Loaded {} owned games from Steam library.", username, owned.len()));
+                {
+                    let mut a = acc_for_task.lock().unwrap();
+                    a.owned_games = owned.clone();
                 }
+                crate::inventory::store_owned_games_cache(my_steam_id, owned);
             }
 
             // Durum ve Oyun Paketlerini Oluşturma Fonksiyonu
@@ -444,7 +460,10 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
             let mut legacy_friend_stream = connection.on::<CMsgClientFriendMsgIncoming>();
             let mut item_announcement_stream = connection.on::<CMsgClientItemAnnouncements>();
             let mut is_paused_for_game = false;
-            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            let mut interval = tokio::time::interval_at(
+                tokio::time::Instant::now() + Duration::from_secs(60),
+                Duration::from_secs(60),
+            );
 
             let reply_to_friend = |conn: Connection, user: String, target_id: u64, text: String| {
                 tokio::spawn(async move {
@@ -490,38 +509,50 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
             loop {
                 tokio::select! {
                     // 1. Gerçek oyun oturum çakışması algılama (Auto-Pause & Auto-Resume)
-                    Some(Ok(session_state)) = session_stream.next() => {
-                        let is_blocked = session_state.playing_blocked.unwrap_or(false);
-                        let playing_app = session_state.playing_app.unwrap_or(0);
-                        debug_log::log_packet(
-                            &username,
-                            PacketDirection::Inbound,
-                            "CMsgClientPlayingSessionState",
-                            &format!("Blocked: {}, App: {}", is_blocked, playing_app),
-                            PacketCategory::Session,
-                        );
+                    msg_res = session_stream.next() => {
+                        match msg_res {
+                            Some(Ok(session_state)) => {
+                                let is_blocked = session_state.playing_blocked.unwrap_or(false);
+                                let playing_app = session_state.playing_app.unwrap_or(0);
+                                debug_log::log_packet(
+                                    &username,
+                                    PacketDirection::Inbound,
+                                    "CMsgClientPlayingSessionState",
+                                    &format!("Blocked: {}, App: {}", is_blocked, playing_app),
+                                    PacketCategory::Session,
+                                );
 
-                        if is_blocked && !is_paused_for_game {
-                            is_paused_for_game = true;
-                            logger::log_warn(&format!("[{}] 🎮 Real game detected (AppID: {}). Boosting automatically paused!", username, playing_app));
-                            let empty_msg = CMsgClientGamesPlayed::new();
-                            let _ = connection.send(empty_msg).await;
-                            let mut a = acc_for_task.lock().unwrap();
-                            a.status = AccountStatus::PausedForGame {
-                                app_id: playing_app,
-                                app_name: format!("AppID {}", playing_app),
-                            };
-                        } else if !is_blocked && is_paused_for_game {
-                            is_paused_for_game = false;
-                            logger::log_success(&format!("[{}] 🎮 Real game closed. Resuming hour boosting!", username));
-                            let hours = { acc_for_task.lock().unwrap().hours_boosted };
-                            let (s_msg, g_msg) = build_presence(&current_games, &current_title, current_persona, hours);
-                            status_msg = s_msg;
-                            games_msg = g_msg;
-                            let _ = connection.send(status_msg.clone()).await;
-                            let _ = connection.send(games_msg.clone()).await;
-                            let mut a = acc_for_task.lock().unwrap();
-                            a.status = AccountStatus::Boosting;
+                                if is_blocked && !is_paused_for_game {
+                                    is_paused_for_game = true;
+                                    logger::log_warn(&format!("[{}] 🎮 Real game detected (AppID: {}). Boosting automatically paused!", username, playing_app));
+                                    let empty_msg = CMsgClientGamesPlayed::new();
+                                    let _ = connection.send(empty_msg).await;
+                                    let mut a = acc_for_task.lock().unwrap();
+                                    a.status = AccountStatus::PausedForGame {
+                                        app_id: playing_app,
+                                        app_name: format!("AppID {}", playing_app),
+                                    };
+                                } else if !is_blocked && is_paused_for_game {
+                                    is_paused_for_game = false;
+                                    logger::log_success(&format!("[{}] 🎮 Real game closed. Resuming hour boosting!", username));
+                                    let hours = { acc_for_task.lock().unwrap().hours_boosted };
+                                    let (s_msg, g_msg) = build_presence(&current_games, &current_title, current_persona, hours);
+                                    status_msg = s_msg;
+                                    games_msg = g_msg;
+                                    let _ = connection.send(status_msg.clone()).await;
+                                    let _ = connection.send(games_msg.clone()).await;
+                                    let mut a = acc_for_task.lock().unwrap();
+                                    a.status = AccountStatus::Boosting;
+                                }
+                            }
+                            Some(Err(e)) => {
+                                logger::log_warn(&format!("[{}] Connection stream error: {}. Reconnecting...", username, e));
+                                break;
+                            }
+                            None => {
+                                logger::log_warn(&format!("[{}] Steam connection closed. Reconnecting...", username));
+                                break;
+                            }
                         }
                     }
 
@@ -603,7 +634,7 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
                             &username,
                             PacketDirection::Inbound,
                             "ChatRoomClient.NotifyIncomingChatMessage#1",
-                            &format!("Gönderen: {} | Mesaj: \"{}\"", from_id, text),
+                            &format!("Sender: {} | Message: \"{}\"", from_id, text),
                             PacketCategory::Chat,
                         );
 
@@ -644,7 +675,7 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
                             &username,
                             PacketDirection::Inbound,
                             "CMsgClientFriendMsgIncoming",
-                            &format!("Gönderen: {} | Mesaj: \"{}\"", from_id, text),
+                            &format!("Sender: {} | Message: \"{}\"", from_id, text),
                             PacketCategory::Chat,
                         );
 
@@ -708,6 +739,7 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
                                 a.hours_boosted
                             };
 
+                            let mut presence_changed = false;
                             let global_settings = crate::data::get_global_settings();
 
                             // Dinamik Başlık Döngüsü (Smart Status Scenarios)
@@ -719,6 +751,7 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
                                     title_rotation_index = (title_rotation_index + 1) % global_settings.title_rotation_list.len();
                                     current_title = global_settings.title_rotation_list[title_rotation_index].clone();
                                     logger::log_info(&format!("[{}] 🔄 Dynamic title rotated: \"{}\"", username, current_title));
+                                    presence_changed = true;
                                 }
                             }
 
@@ -739,27 +772,29 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
                                 title_refresh_ticks = 0;
                                 let dyn_title = format_dynamic_title(current_title.trim(), hours, current_games.len());
                                 logger::log_info(&format!("[{}] 🔄 10-minute dynamic title refresh: \"{}\" ({:.1}h)", username, dyn_title, hours));
+                                presence_changed = true;
                             }
 
-                            // Dinamik başlık paketlerini güncelle
-                            let (s_msg, g_msg) = build_presence(&current_games, &current_title, current_persona, hours);
-                            status_msg = s_msg;
-                            games_msg = g_msg;
+                            // Sadece başlık/varlık değiştiğinde Steam'e gönder
+                            if presence_changed {
+                                let (s_msg, g_msg) = build_presence(&current_games, &current_title, current_persona, hours);
+                                status_msg = s_msg;
+                                games_msg = g_msg;
 
-                            // Keepalive sinyalleri
-                            if let Err(e) = connection.send(status_msg.clone()).await {
-                                logger::log_warn(&format!("[{}] Failed to send keepalive status: {}", username, e));
-                            }
-                            if let Err(e) = connection.send(games_msg.clone()).await {
-                                logger::log_warn(&format!("[{}] Connection lost (Tuesday maintenance or network issue): {}. Reconnecting...", username, e));
-                                break; // Reconnect döngüsüne düş
+                                if let Err(e) = connection.send(status_msg.clone()).await {
+                                    logger::log_warn(&format!("[{}] Failed to send presence status: {}", username, e));
+                                }
+                                if let Err(e) = connection.send(games_msg.clone()).await {
+                                    logger::log_warn(&format!("[{}] Connection lost while updating presence: {}. Reconnecting...", username, e));
+                                    break;
+                                }
                             }
                         }
                     }
 
                     // 8. Durdurma sinyali
-                    _ = stop_rx.changed() => {
-                        if *stop_rx.borrow() {
+                    res = stop_rx.changed() => {
+                        if res.is_err() || *stop_rx.borrow() {
                             logger::log_info(&format!("[{}] Hour boosting stopped by user.", username));
                             let clear_msg = CMsgClientGamesPlayed::new();
                             let _ = connection.send(clear_msg).await;
@@ -772,7 +807,7 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
             }
 
             // Yeniden bağlanma
-            if *stop_rx.borrow() {
+            if *stop_rx.borrow() || stop_rx.has_changed().is_err() {
                 break;
             }
             logger::log_warn(&format!("[{}] Connection lost. Reconnecting in {}s (Attempt: {})...", username, reconnect_delay, reconnect_attempt + 1));
@@ -783,7 +818,14 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
                     retry_in_secs: reconnect_delay,
                 };
             }
-            tokio::time::sleep(Duration::from_secs(reconnect_delay)).await;
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(reconnect_delay)) => {}
+                res = stop_rx.changed() => {
+                    if res.is_err() || *stop_rx.borrow() {
+                        break;
+                    }
+                }
+            }
             reconnect_delay = (reconnect_delay * 2).min(60);
             reconnect_attempt += 1;
         }

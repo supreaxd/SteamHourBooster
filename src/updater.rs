@@ -272,7 +272,7 @@ pub fn check_for_updates(state_arc: Arc<Mutex<UpdateState>>, repo: String) {
                 let current_version = env!("CARGO_PKG_VERSION");
                 if is_newer(&release.version, current_version) {
                     logger::log_success(&format!(
-                        "🚀 Yeni sürüm bulundu: v{} (Mevcut: v{}) — {}",
+                        "🚀 New version found: v{} (Current: v{}) — {}",
                         release.version, current_version, release.title
                     ));
                     let mut s = state_arc.lock().unwrap();
@@ -288,13 +288,13 @@ pub fn check_for_updates(state_arc: Arc<Mutex<UpdateState>>, repo: String) {
                     };
                 } else {
                     let now = chrono::Local::now().format("%H:%M:%S").to_string();
-                    logger::log_info(&format!("✅ Uygulama güncel (v{}). Son kontrol: {}", current_version, now));
+                    logger::log_info(&format!("✅ Application is up to date (v{}). Last checked: {}", current_version, now));
                     let mut s = state_arc.lock().unwrap();
                     *s = UpdateState::UpToDate { checked_at: now };
                 }
             }
             Err(e) => {
-                logger::log_warn(&format!("⚠️ Güncelleme denetimi tamamlanamadı: {}", e));
+                logger::log_warn(&format!("⚠️ Update check failed: {}", e));
                 let mut s = state_arc.lock().unwrap();
                 *s = UpdateState::Error(e);
             }
@@ -321,7 +321,7 @@ pub fn start_download_and_update(
         logger::log_info(&format!("📥 Downloading new version from: {}", download_url));
         match download_binary(&download_url, expected_size, state_arc.clone()).await {
             Ok(temp_path) => {
-                logger::log_success("✅ Yeni sürüm indirildi. Uygulanıyor ve yeniden başlatılıyor...");
+                logger::log_success("✅ Update downloaded. Applying and restarting...");
                 {
                     let mut s = state_arc.lock().unwrap();
                     *s = UpdateState::ReadyToRestart;
@@ -330,15 +330,15 @@ pub fn start_download_and_update(
                 tokio::time::sleep(Duration::from_millis(500)).await;
 
                 if let Err(e) = apply_update_and_restart(&temp_path) {
-                    logger::log_error(&format!("Güncelleme uygulanamadı: {}", e));
+                    logger::log_error(&format!("Failed to apply update: {}", e));
                     let mut s = state_arc.lock().unwrap();
-                    *s = UpdateState::Error(format!("Güncelleme uygulanamadı: {}", e));
+                    *s = UpdateState::Error(format!("Failed to apply update: {}", e));
                 }
             }
             Err(e) => {
-                logger::log_error(&format!("İndirme hatası: {}", e));
+                logger::log_error(&format!("Download error: {}", e));
                 let mut s = state_arc.lock().unwrap();
-                *s = UpdateState::Error(format!("İndirme hatası: {}", e));
+                *s = UpdateState::Error(format!("Download error: {}", e));
             }
         }
     });
@@ -357,7 +357,7 @@ async fn download_binary(
         .build()
         .map_err(|e| e.to_string())?;
 
-    let mut resp = client.get(download_url).send().await.map_err(|e| format!("İndirme başlatılamadı: {}", e))?;
+    let mut resp = client.get(download_url).send().await.map_err(|e| format!("Failed to start download: {}", e))?;
     let total_size = resp.content_length().unwrap_or(expected_size);
 
     let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -368,11 +368,11 @@ async fn download_binary(
     }
 
     let mut file = tokio::fs::File::create(&temp_exe_path).await
-        .map_err(|e| format!("Hedef dosya açılamadı: {}", e))?;
+        .map_err(|e| format!("Failed to open target file: {}", e))?;
 
     let mut downloaded: u64 = 0;
-    while let Some(chunk) = resp.chunk().await.map_err(|e| format!("Veri transfer hatası: {}", e))? {
-        file.write_all(&chunk).await.map_err(|e| format!("Diske yazma hatası: {}", e))?;
+    while let Some(chunk) = resp.chunk().await.map_err(|e| format!("Data transfer error: {}", e))? {
+        file.write_all(&chunk).await.map_err(|e| format!("Failed to write to disk: {}", e))?;
         downloaded += chunk.len() as u64;
         let progress = if total_size > 0 {
             (downloaded as f32 / total_size as f32).clamp(0.0, 1.0)
@@ -397,7 +397,7 @@ async fn download_binary(
 
 /// Seamless in-place binary swap for Windows
 pub fn apply_update_and_restart(temp_path: &std::path::Path) -> Result<(), String> {
-    let current_exe = std::env::current_exe().map_err(|e| format!("Çalışan exe yolu bulunamadı: {}", e))?;
+    let current_exe = std::env::current_exe().map_err(|e| format!("Failed to locate running executable: {}", e))?;
     let old_backup = current_exe.with_extension("old");
 
     // 1. Remove any previous .old file
@@ -415,18 +415,18 @@ pub fn apply_update_and_restart(temp_path: &std::path::Path) -> Result<(), Strin
         if let Err(copy_err) = std::fs::copy(temp_path, &current_exe) {
             // Rollback on failure
             let _ = std::fs::rename(&old_backup, &current_exe);
-            return Err(format!("Yeni sürüm uygulanamadı: {} (Taşıma: {})", copy_err, e));
+            return Err(format!("Failed to apply update: {} (Move: {})", copy_err, e));
         }
         let _ = std::fs::remove_file(temp_path);
     }
 
-    logger::log_success("🚀 Uygulama güncellendi! Yeni sürüm başlatılıyor...");
+    logger::log_success("🚀 Application updated! Launching new version...");
 
     // 4. Spawn new process
     let mut cmd = std::process::Command::new(&current_exe);
     let args: Vec<String> = std::env::args().skip(1).collect();
     cmd.args(&args);
-    cmd.spawn().map_err(|e| format!("Yeni sürüm çalıştırılamadı: {}", e))?;
+    cmd.spawn().map_err(|e| format!("Failed to launch new version: {}", e))?;
 
     // 5. Exit current process
     std::process::exit(0);

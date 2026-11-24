@@ -183,7 +183,7 @@ impl DashboardView {
                 ScrollArea::vertical().max_height(160.0).stick_to_bottom(true).show(ui, |ui| {
                     let logs = get_logs();
                     if logs.is_empty() {
-                        ui.label(RichText::new("Henüz sistem aktivitesi yok.").font(FontId::proportional(11.5)).color(Color32::from_rgb(110, 130, 150)));
+                        ui.label(RichText::new("No system activity yet.").font(FontId::proportional(11.5)).color(Color32::from_rgb(110, 130, 150)));
                     } else {
                         for entry in logs.iter().rev().take(30) {
                             ui.horizontal(|ui| {
