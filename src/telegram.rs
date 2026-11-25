@@ -3,7 +3,32 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use serde_json::Value;
 use crate::data::{get_global_settings, Account, AccountStatus};
+use crate::i18n::Language;
 use crate::logger;
+
+fn pick<'a>(lang: Language, en: &'a str, tr: &'a str, ru: &'a str) -> &'a str {
+    match lang {
+        Language::English => en,
+        Language::Turkish => tr,
+        Language::Russian => ru,
+    }
+}
+
+fn set_telegram_language(new_lang: Language) {
+    let mut config = crate::data::AppConfig::load();
+    config.settings.telegram_language = new_lang;
+    config.save();
+    crate::data::update_global_settings(&config.settings);
+}
+
+fn parse_lang_arg(s: &str) -> Option<Language> {
+    match s.trim().to_lowercase().as_str() {
+        "en" | "eng" | "english" => Some(Language::English),
+        "tr" | "tur" | "turkish" | "türkçe" | "turkce" => Some(Language::Turkish),
+        "ru" | "rus" | "russian" | "rusça" | "rusca" | "русский" => Some(Language::Russian),
+        _ => None,
+    }
+}
 
 // Default account selected via /switch command
 static SELECTED_ACCOUNT: OnceLock<Mutex<String>> = OnceLock::new();
@@ -530,6 +555,7 @@ async fn handle_bot_command(command: &str) -> (String, Option<String>, Option<Va
     // Strip /cmd@BotName format
     let cmd = cmd.split('@').next().unwrap_or(&cmd).to_string();
     let accounts_arc = RUNTIME_ACCOUNTS_REF.get_or_init(|| Arc::new(Mutex::new(Vec::new()))).clone();
+    let lang = get_global_settings().telegram_language;
 
     // Helper: resolve account name — if none given, fall back to /switch selection or first account
     let resolve_account = |name_opt: Option<&str>| -> Option<String> {
@@ -540,7 +566,6 @@ async fn handle_bot_command(command: &str) -> (String, Option<String>, Option<Va
         if !sel.is_empty() {
             return Some(sel);
         }
-        // first account
         if let Ok(lock) = accounts_arc.lock() {
             if let Some(first) = lock.first() {
                 if let Ok(a) = first.lock() {
@@ -556,38 +581,124 @@ async fn handle_bot_command(command: &str) -> (String, Option<String>, Option<Va
         // /start  — welcome + command summary
         // ─────────────────────────────────────────────────────────────
         "/start" => {
-            let msg = "🤖 *SupBooster Bot*\n\
-EN: Welcome! Use /help to see all commands.\n\
-TR: Hoş geldin! Tüm komutları görmek için /help yaz.\n\
-RU: Добро пожаловать! Введи /help для списка команд.".to_string();
+            let msg = pick(
+                lang,
+                "🤖 *SupBooster Bot*\nWelcome! Use `/help` to see all commands or `/lang` to change language.",
+                "🤖 *SupBooster Bot*\nHoş geldin! Tüm komutlar için `/help`, dil değiştirmek için `/lang` yazabilirsin.",
+                "🤖 *SupBooster Bot*\nДобро пожаловать! Введи `/help` для списка команд или `/lang` для смены языка.",
+            ).to_string();
             (msg, None, None)
         }
 
         // ─────────────────────────────────────────────────────────────
-        // /help  — full trilingual command list
+        // /lang [en|tr|ru]  — select bot language
+        // ─────────────────────────────────────────────────────────────
+        "/lang" => {
+            if let Some(arg) = parts.get(1) {
+                if let Some(new_lang) = parse_lang_arg(arg) {
+                    set_telegram_language(new_lang);
+                    let msg = pick(
+                        new_lang,
+                        "✅ Bot language set to *English*.",
+                        "✅ Bot dili *Türkçe* olarak ayarlandı.",
+                        "✅ Язык бота переключён на *Русский*.",
+                    ).to_string();
+                    return (msg, None, None);
+                }
+            }
+
+            let msg = pick(
+                lang,
+                "🌐 *Select Bot Language* (Current: English):",
+                "🌐 *Bot Dilini Seçin* (Mevcut: Türkçe):",
+                "🌐 *Выберите язык бота* (Текущий: Русский):",
+            ).to_string();
+            let keyboard = serde_json::json!({
+                "inline_keyboard": [[
+                    { "text": "🇬🇧 English", "callback_data": "set_lang:en" },
+                    { "text": "🇹🇷 Türkçe", "callback_data": "set_lang:tr" },
+                    { "text": "🇷🇺 Русский", "callback_data": "set_lang:ru" }
+                ]]
+            });
+            (msg, None, Some(keyboard))
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // /help  — full command list in selected language
         // ─────────────────────────────────────────────────────────────
         "/help" => {
-            let msg = "🤖 *SupBooster — Command List / Komut Listesi / Список команд*\n\n\
-📌 *Basic / Temel / Основные*\n\
-`/start` — EN: Start bot | TR: Botu başlat | RU: Запуск бота\n\
-`/help` — EN: Show all commands | TR: Tüm komutları göster | RU: Список команд\n\
-`/status` — EN: Account status | TR: Hesap durumu | RU: Статус аккаунтов\n\n\
-🚀 *Boost Control / Boost Kontrolü / Управление бустом*\n\
-`/start_boost [hesap]` — EN: Start boosting | TR: Boost başlat | RU: Начать буст\n\
-`/stop_boost [hesap]` — EN: Stop boosting | TR: Boost durdur | RU: Остановить буст\n\
-`/restart [hesap]` — EN: Reconnect | TR: Yeniden bağlan | RU: Переподключить\n\n\
-🃏 *Cards & Drops / Kartlar / Карточки*\n\
-`/drops [hesap]` — EN: Games with card drops | TR: Kart düşen oyunlar | RU: Игры с дропами\n\
-`/auto_drops <on|off>` — EN: Auto-switch on 0 drops | TR: Otomatik geçiş | RU: Авто-переключение\n\
-`/drop_notify <on|off>` — EN: Card drop notifications | TR: Kart bildirimleri | RU: Уведомления о дропах\n\n\
-🎮 *Game Management / Oyun Yönetimi / Игры*\n\
-`/games [hesap]` — EN: List boost games | TR: Boost oyunlarını listele | RU: Список игр\n\
-`/add_game <appid> [hesap]` — EN: Add game | TR: Oyun ekle | RU: Добавить игру\n\
-`/remove_game <appid> [hesap]` — EN: Remove game | TR: Oyun kaldır | RU: Убрать игру\n\n\
-👤 *Account Management / Hesap Yönetimi / Аккаунты*\n\
-`/accounts` — EN: List all accounts | TR: Tüm hesapları listele | RU: Все аккаунты\n\
-`/switch <hesap>` — EN: Set default account | TR: Varsayılan hesabı seç | RU: Выбрать аккаунт\n\
-`/qr [hesap]` — EN: Send QR code | TR: QR kod gönder | RU: Отправить QR-код\n".to_string();
+            let msg = pick(
+                lang,
+                "🤖 *SupBooster — Command List*\n\n\
+📌 *Basic*\n\
+`/start` — Start bot\n\
+`/help` — Show all commands\n\
+`/lang` — Change bot language (EN/TR/RU)\n\
+`/status` — Account status & quick controls\n\n\
+🚀 *Boost Control*\n\
+`/start_boost [account]` — Start boosting\n\
+`/stop_boost [account]` — Stop boosting\n\
+`/restart [account]` — Reconnect session\n\n\
+🃏 *Cards & Drops*\n\
+`/drops [account]` — Games with card drops\n\
+`/auto_drops <on|off>` — Auto-switch on 0 drops\n\
+`/drop_notify <on|off>` — Card drop notifications\n\n\
+🎮 *Game Management*\n\
+`/games [account]` — List boost games\n\
+`/add_game <appid> [account]` — Add game\n\
+`/remove_game <appid> [account]` — Remove game\n\n\
+👤 *Account Management*\n\
+`/accounts` — List all accounts\n\
+`/addaccount <username> | <password>` — Add Steam account\n\
+`/switch <account>` — Set default account\n\
+`/qr [account]` — Send QR login image",
+                "🤖 *SupBooster — Komut Listesi*\n\n\
+📌 *Temel*\n\
+`/start` — Botu başlatır\n\
+`/help` — Tüm komutları listeler\n\
+`/lang` — Bot dilini seçer (EN/TR/RU)\n\
+`/status` — Hesap durumu ve hızlı kontrol\n\n\
+🚀 *Boost Kontrolü*\n\
+`/start_boost [hesap]` — Boost başlatır\n\
+`/stop_boost [hesap]` — Boost durdurur\n\
+`/restart [hesap]` — Oturumu yeniler\n\n\
+🃏 *Kartlar & Droplar*\n\
+`/drops [hesap]` — Kart düşen oyunlar\n\
+`/auto_drops <on|off>` — 0 kartta otomatik geçiş\n\
+`/drop_notify <on|off>` — Kart düşme bildirimleri\n\n\
+🎮 *Oyun Yönetimi*\n\
+`/games [hesap]` — Boost oyunlarını listeler\n\
+`/add_game <appid> [hesap]` — Oyun ekler\n\
+`/remove_game <appid> [hesap]` — Oyun kaldırır\n\n\
+👤 *Hesap Yönetimi*\n\
+`/accounts` — Kayıtlı hesapları listeler\n\
+`/addaccount <kullanıcı adı> | <şifre>` — Steam hesabı ekler\n\
+`/switch <hesap>` — Varsayılan hesabı seçer\n\
+`/qr [hesap]` — QR giriş görseli gönderir",
+                "🤖 *SupBooster — Список команд*\n\n\
+📌 *Основные*\n\
+`/start` — Запуск бота\n\
+`/help` — Список всех команд\n\
+`/lang` — Выбрать язык бота (EN/TR/RU)\n\
+`/status` — Статус аккаунтов и управление\n\n\
+🚀 *Управление бустом*\n\
+`/start_boost [аккаунт]` — Запустить буст\n\
+`/stop_boost [аккаунт]` — Остановить буст\n\
+`/restart [аккаунт]` — Переподключить сессию\n\n\
+🃏 *Карточки и дропы*\n\
+`/drops [аккаунт]` — Игры с доступными дропами\n\
+`/auto_drops <on|off>` — Авто-переключение при 0 карт\n\
+`/drop_notify <on|off>` — Уведомления о дропах\n\n\
+🎮 *Управление играми*\n\
+`/games [аккаунт]` — Список игр для буста\n\
+`/add_game <appid> [аккаунт]` — Добавить игру\n\
+`/remove_game <appid> [аккаунт]` — Убрать игру\n\n\
+👤 *Управление аккаунтами*\n\
+`/accounts` — Список всех аккаунтов\n\
+`/addaccount <логин> | <пароль>` — Добавить аккаунт Steam\n\
+`/switch <аккаунт>` — Выбрать аккаунт по умолчанию\n\
+`/qr [аккаунт]` — Отправить QR-код для входа",
+            ).to_string();
             (msg, None, None)
         }
 
@@ -602,47 +713,57 @@ RU: Добро пожаловать! Введи /help для списка ком
 
             if accounts.is_empty() {
                 return (
-                    "⚠️ EN: No accounts added yet.\nTR: Henüz hesap eklenmemiş.\nRU: Аккаунты не добавлены.".to_string(),
+                    pick(
+                        lang,
+                        "⚠️ No accounts added yet.",
+                        "⚠️ Henüz hesap eklenmemiş.",
+                        "⚠️ Аккаунты ещё не добавлены.",
+                    ).to_string(),
                     None, None,
                 );
             }
 
-            let mut out = String::from("📋 *SupBooster — Account Status / Hesap Durumu / Статус*\n\n");
+            let mut out = pick(
+                lang,
+                "📋 *SupBooster — Account Status*\n\n",
+                "📋 *SupBooster — Hesap Durumu*\n\n",
+                "📋 *SupBooster — Статус аккаунтов*\n\n",
+            ).to_string();
             let mut buttons: Vec<Vec<Value>> = Vec::new();
 
             for (idx, arc) in accounts.iter().enumerate() {
                 let a = arc.lock().unwrap();
-                let (icon, en_status, tr_status, ru_status) = match &a.status {
-                    AccountStatus::Boosting           => ("🟢", "Boosting",      "Kasıyor",          "Работает"),
-                    AccountStatus::Connecting         => ("🟡", "Connecting",    "Bağlanıyor",       "Подключение"),
-                    AccountStatus::AwaitingSteamGuard { .. } => ("🛡️", "Guard Needed", "Kod Bekleniyor", "Нужен код"),
-                    AccountStatus::PausedForGame { .. }     => ("⏸️", "In-Game",      "Oyunda",          "В игре"),
-                    AccountStatus::Reconnecting { .. }      => ("🔄", "Reconnecting", "Yeniden Bağlanıyor", "Переподключение"),
-                    AccountStatus::Error(_)           => ("🔴", "Error",         "Hata",             "Ошибка"),
-                    AccountStatus::Idle               => ("⚪", "Stopped",       "Durduruldu",       "Остановлен"),
+                let (icon, st) = match &a.status {
+                    AccountStatus::Boosting => ("🟢", pick(lang, "Boosting", "Kasıyor", "Работает")),
+                    AccountStatus::Connecting => ("🟡", pick(lang, "Connecting", "Bağlanıyor", "Подключение")),
+                    AccountStatus::AwaitingSteamGuard { .. } => ("🛡️", pick(lang, "Guard Needed", "Kod Bekleniyor", "Нужен код")),
+                    AccountStatus::PausedForGame { .. } => ("⏸️", pick(lang, "In-Game", "Oyunda", "В игре")),
+                    AccountStatus::Reconnecting { .. } => ("🔄", pick(lang, "Reconnecting", "Yeniden Bağlanıyor", "Переподключение")),
+                    AccountStatus::Error(_) => ("🔴", pick(lang, "Error", "Hata", "Ошибка")),
+                    AccountStatus::Idle => ("⚪", pick(lang, "Stopped", "Durduruldu", "Остановлен")),
                 };
 
                 let card_count = crate::inventory::get_cached_active_drops(a.steam_id).len();
+                let games_lbl = pick(lang, "games", "oyun", "игр");
+                let drops_lbl = pick(lang, "card drops", "kart hakkı", "дропов");
 
                 out.push_str(&format!(
-                    "{}. {} *{}*\n   EN: {} | TR: {} | RU: {}\n   ⏱ `{:.1}h` | 🎮 `{}` games | 🃏 `{}` card drops\n\n",
-                    idx + 1, icon, a.username,
-                    en_status, tr_status, ru_status,
-                    a.hours_boosted, a.games.len(), card_count
+                    "{}. {} *{}*\n   └ {} | ⏱ `{:.1}h` | 🎮 `{}` {} | 🃏 `{}` {}\n\n",
+                    idx + 1, icon, a.username, st, a.hours_boosted, a.games.len(), games_lbl, card_count, drops_lbl
                 ));
 
-                // Inline row: Stop / Start button per account
-                let row = vec![
+                let stop_lbl = pick(lang, "Stop", "Durdur", "Стоп");
+                let start_lbl = pick(lang, "Start", "Başlat", "Старт");
+                buttons.push(vec![
                     serde_json::json!({
-                        "text": format!("⏹ Stop {}", a.username),
+                        "text": format!("⏹ {} {}", stop_lbl, a.username),
                         "callback_data": format!("stop_boost:{}", a.username)
                     }),
                     serde_json::json!({
-                        "text": format!("▶️ Start {}", a.username),
+                        "text": format!("▶️ {} {}", start_lbl, a.username),
                         "callback_data": format!("start_boost:{}", a.username)
                     }),
-                ];
-                buttons.push(row);
+                ]);
             }
 
             let keyboard = serde_json::json!({ "inline_keyboard": buttons });
@@ -655,15 +776,23 @@ RU: Добро пожаловать! Введи /help для списка ком
         "/start_boost" => {
             if parts.len() > 1 {
                 let target = parts[1];
-                let result = start_account_remote(target);
-                let msg = match result {
-                    Ok(_) => format!("▶️ EN: Boost started for `{}`\nTR: `{}` için boost başlatıldı\nRU: Буст запущен для `{}`", target, target, target),
+                let msg = match start_account_remote(target) {
+                    Ok(_) => match lang {
+                        Language::English => format!("▶️ Boost started for `{}`.", target),
+                        Language::Turkish => format!("▶️ `{}` için boost başlatıldı.", target),
+                        Language::Russian => format!("▶️ Буст запущен для `{}`.", target),
+                    },
                     Err(e) => e,
                 };
                 (msg, None, None)
             } else {
                 start_all_remote();
-                ("▶️ EN: Boost started for all accounts.\nTR: Tüm hesaplar için boost başlatıldı.\nRU: Буст запущен для всех аккаунтов.".to_string(), None, None)
+                (pick(
+                    lang,
+                    "▶️ Boost started for all accounts.",
+                    "▶️ Tüm hesaplar için boost başlatıldı.",
+                    "▶️ Буст запущен для всех аккаунтов.",
+                ).to_string(), None, None)
             }
         }
 
@@ -673,15 +802,23 @@ RU: Добро пожаловать! Введи /help для списка ком
         "/stop_boost" => {
             if parts.len() > 1 {
                 let target = parts[1];
-                let result = stop_account_remote(target);
-                let msg = match result {
-                    Ok(_) => format!("⏹️ EN: Boost stopped for `{}`\nTR: `{}` için boost durduruldu\nRU: Буст остановлен для `{}`", target, target, target),
+                let msg = match stop_account_remote(target) {
+                    Ok(_) => match lang {
+                        Language::English => format!("⏹️ Boost stopped for `{}`.", target),
+                        Language::Turkish => format!("⏹️ `{}` için boost durduruldu.", target),
+                        Language::Russian => format!("⏹️ Буст остановлен для `{}`.", target),
+                    },
                     Err(e) => e,
                 };
                 (msg, None, None)
             } else {
                 stop_all_remote();
-                ("⏹️ EN: Boost stopped for all accounts.\nTR: Tüm hesaplarda boost durduruldu.\nRU: Буст остановлен для всех аккаунтов.".to_string(), None, None)
+                (pick(
+                    lang,
+                    "⏹️ Boost stopped for all accounts.",
+                    "⏹️ Tüm hesaplarda boost durduruldu.",
+                    "⏹️ Буст остановлен для всех аккаунтов.",
+                ).to_string(), None, None)
             }
         }
 
@@ -691,15 +828,23 @@ RU: Добро пожаловать! Введи /help для списка ком
         "/restart" => {
             if parts.len() > 1 {
                 let target = parts[1];
-                let result = restart_account_remote(target);
-                let msg = match result {
-                    Ok(_) => format!("🔄 EN: Restarting `{}`...\nTR: `{}` yeniden başlatılıyor...\nRU: Перезапуск `{}`...", target, target, target),
+                let msg = match restart_account_remote(target) {
+                    Ok(_) => match lang {
+                        Language::English => format!("🔄 Restarting `{}`...", target),
+                        Language::Turkish => format!("🔄 `{}` yeniden başlatılıyor...", target),
+                        Language::Russian => format!("🔄 Перезапуск `{}`...", target),
+                    },
                     Err(e) => e,
                 };
                 (msg, None, None)
             } else {
                 restart_all_remote();
-                ("🔄 EN: Restarting all accounts...\nTR: Tüm hesaplar yeniden başlatılıyor...\nRU: Перезапуск всех аккаунтов...".to_string(), None, None)
+                (pick(
+                    lang,
+                    "🔄 Restarting all accounts...",
+                    "🔄 Tüm hesaplar yeniden başlatılıyor...",
+                    "🔄 Перезапуск всех аккаунтов...",
+                ).to_string(), None, None)
             }
         }
 
@@ -710,11 +855,10 @@ RU: Добро пожаловать! Введи /help для списка ком
             let target_opt = resolve_account(parts.get(1).copied());
             match target_opt {
                 None => (
-                    "❌ EN: No account specified or selected.\nTR: Hesap belirtilmedi.\nRU: Аккаунт не указан.".to_string(),
+                    pick(lang, "❌ No account specified.", "❌ Hesap belirtilmedi.", "❌ Аккаунт не указан.").to_string(),
                     None, None
                 ),
                 Some(target) => {
-                    // Find steam_id for this account
                     let target_l = target.to_lowercase();
                     let steam_id = {
                         let lock = accounts_arc.lock().unwrap();
@@ -729,25 +873,25 @@ RU: Добро пожаловать! Введи /help для списка ком
                     };
 
                     match steam_id {
-                        None => (format!("❌ Account `{}` not found.", target), None, None),
+                        None => (format!("❌ `{}` not found.", target), None, None),
                         Some(sid) => {
                             let drops = crate::inventory::get_cached_active_drops(sid);
                             if drops.is_empty() {
-                                let msg = format!(
-                                    "🃏 EN: No card drops remaining for `{}`.\nTR: `{}` için kart düşürme hakkı yok.\nRU: Дропов карт нет для `{}`.",
-                                    target, target, target
-                                );
+                                let msg = match lang {
+                                    Language::English => format!("🃏 No card drops remaining for `{}`.", target),
+                                    Language::Turkish => format!("🃏 `{}` için kalan kart düşürme hakkı yok.", target),
+                                    Language::Russian => format!("🃏 Для `{}` не осталось дропов карт.", target),
+                                };
                                 (msg, None, None)
                             } else {
-                                let mut msg = format!(
-                                    "🃏 *{}* — EN: Active Card Drops | TR: Aktif Kart Hakları | RU: Активные дропы\n\n",
-                                    target
-                                );
+                                let header = pick(lang, "Active Card Drops", "Aktif Kart Hakları", "Активные дропы");
+                                let rem_lbl = pick(lang, "cards remaining", "kart kaldı", "карт осталось");
+                                let mut msg = format!("🃏 *{}* — {}\n\n", target, header);
                                 let mut buttons: Vec<Vec<Value>> = Vec::new();
                                 for d in &drops {
                                     msg.push_str(&format!(
-                                        "• *{}* (AppID: `{}`)\n  🃏 `{}` cards remaining\n",
-                                        d.name, d.app_id, d.remaining_cards
+                                        "• *{}* (AppID: `{}`)\n  🃏 `{}` {}\n",
+                                        d.name, d.app_id, d.remaining_cards, rem_lbl
                                     ));
                                     buttons.push(vec![serde_json::json!({
                                         "text": format!("🎮 Boost {}", d.name),
@@ -770,7 +914,7 @@ RU: Добро пожаловать! Введи /help для списка ком
             let target_opt = resolve_account(parts.get(1).copied());
             match target_opt {
                 None => (
-                    "❌ EN: No account specified.\nTR: Hesap belirtilmedi.\nRU: Аккаунт не указан.".to_string(),
+                    pick(lang, "❌ No account specified.", "❌ Hesap belirtilmedi.", "❌ Аккаунт не указан.").to_string(),
                     None, None
                 ),
                 Some(target) => {
@@ -783,15 +927,14 @@ RU: Добро пожаловать! Введи /help для списка ком
                         if a.username.to_lowercase() == target_l || a.id.to_string() == target_l {
                             found = true;
                             if a.games.is_empty() {
-                                out = format!(
-                                    "🎮 EN: `{}` has no games.\nTR: `{}` için oyun yok.\nRU: У `{}` нет игр.\nTo add: `/add_game <appid> {}`",
-                                    a.username, a.username, a.username, a.username
-                                );
+                                out = match lang {
+                                    Language::English => format!("🎮 `{}` has no games.\nAdd: `/add_game <appid> {}`", a.username, a.username),
+                                    Language::Turkish => format!("🎮 `{}` için ekli oyun yok.\nEkle: `/add_game <appid> {}`", a.username, a.username),
+                                    Language::Russian => format!("🎮 У `{}` нет игр.\nДобавить: `/add_game <appid> {}`", a.username, a.username),
+                                };
                             } else {
-                                out = format!(
-                                    "🎮 *{}* — EN: Boost Games ({}) | TR: Boost Oyunları ({}) | RU: Игры для буста ({})\n\n",
-                                    a.username, a.games.len(), a.games.len(), a.games.len()
-                                );
+                                let title = pick(lang, "Boost Games", "Boost Oyunları", "Игры для буста");
+                                out = format!("🎮 *{}* — {} ({})\n\n", a.username, title, a.games.len());
                                 for (i, g) in a.games.iter().enumerate() {
                                     out.push_str(&format!("{}. *{}* — AppID: `{}`\n", i + 1, g.name, g.app_id));
                                 }
@@ -800,7 +943,7 @@ RU: Добро пожаловать! Введи /help для списка ком
                         }
                     }
                     if !found {
-                        out = format!("❌ Account `{}` not found.", target);
+                        out = format!("❌ `{}` not found.", target);
                     }
                     (out, None, None)
                 }
@@ -812,21 +955,19 @@ RU: Добро пожаловать! Введи /help для списка ком
         // ─────────────────────────────────────────────────────────────
         "/add_game" => {
             if parts.len() < 2 {
-                return ("❌ Usage: `/add_game <appid> [account]`".to_string(), None, None);
+                return ("❌ `/add_game <appid> [account]`".to_string(), None, None);
             }
             if let Ok(app_id) = parts[1].parse::<u32>() {
                 let target_opt = resolve_account(parts.get(2).copied());
                 match target_opt {
-                    None => ("❌ EN: No account found.\nTR: Hesap bulunamadı.\nRU: Аккаунт не найден.".to_string(), None, None),
-                    Some(target) => {
-                        match add_game_remote(&target, app_id, "") {
-                            Ok(msg) => (format!("{}\nTR: Oyun eklendi.\nRU: Игра добавлена.", msg), None, None),
-                            Err(e) => (e, None, None),
-                        }
-                    }
+                    None => (pick(lang, "❌ No account found.", "❌ Hesap bulunamadı.", "❌ Аккаунт не найден.").to_string(), None, None),
+                    Some(target) => match add_game_remote(&target, app_id, "") {
+                        Ok(msg) => (msg, None, None),
+                        Err(e) => (e, None, None),
+                    },
                 }
             } else {
-                ("❌ Invalid AppID. Usage: `/add_game <appid> [account]`".to_string(), None, None)
+                ("❌ Invalid AppID. `/add_game <appid> [account]`".to_string(), None, None)
             }
         }
 
@@ -835,21 +976,19 @@ RU: Добро пожаловать! Введи /help для списка ком
         // ─────────────────────────────────────────────────────────────
         "/remove_game" => {
             if parts.len() < 2 {
-                return ("❌ Usage: `/remove_game <appid> [account]`".to_string(), None, None);
+                return ("❌ `/remove_game <appid> [account]`".to_string(), None, None);
             }
             if let Ok(app_id) = parts[1].parse::<u32>() {
                 let target_opt = resolve_account(parts.get(2).copied());
                 match target_opt {
-                    None => ("❌ EN: No account found.\nTR: Hesap bulunamadı.\nRU: Аккаунт не найден.".to_string(), None, None),
-                    Some(target) => {
-                        match remove_game_remote(&target, app_id) {
-                            Ok(msg) => (format!("{}\nTR: Oyun kaldırıldı.\nRU: Игра убрана.", msg), None, None),
-                            Err(e) => (e, None, None),
-                        }
-                    }
+                    None => (pick(lang, "❌ No account found.", "❌ Hesap bulunamadı.", "❌ Аккаунт не найден.").to_string(), None, None),
+                    Some(target) => match remove_game_remote(&target, app_id) {
+                        Ok(msg) => (msg, None, None),
+                        Err(e) => (e, None, None),
+                    },
                 }
             } else {
-                ("❌ Invalid AppID. Usage: `/remove_game <appid> [account]`".to_string(), None, None)
+                ("❌ Invalid AppID. `/remove_game <appid> [account]`".to_string(), None, None)
             }
         }
 
@@ -864,19 +1003,33 @@ RU: Добро пожаловать! Введи /help для списка ком
                     config.settings.auto_switch_drops = true;
                     config.save();
                     crate::data::update_global_settings(&config.settings);
-                    ("✅ EN: Auto-drops ON\nTR: Otomatik kart geçişi AÇIK\nRU: Авто-переключение ВКЛЮЧЕНО".to_string(), None, None)
+                    (pick(
+                        lang,
+                        "✅ Auto-drops ON.",
+                        "✅ Otomatik kart geçişi AÇIK.",
+                        "✅ Авто-переключение ВКЛЮЧЕНО.",
+                    ).to_string(), None, None)
                 }
                 Some("off") => {
                     let mut config = crate::data::AppConfig::load();
                     config.settings.auto_switch_drops = false;
                     config.save();
                     crate::data::update_global_settings(&config.settings);
-                    ("🔕 EN: Auto-drops OFF\nTR: Otomatik kart geçişi KAPALI\nRU: Авто-переключение ВЫКЛЮЧЕНО".to_string(), None, None)
+                    (pick(
+                        lang,
+                        "🔕 Auto-drops OFF.",
+                        "🔕 Otomatik kart geçişi KAPALI.",
+                        "🔕 Авто-переключение ВЫКЛЮЧЕНО.",
+                    ).to_string(), None, None)
                 }
                 _ => {
                     let current = get_global_settings().auto_switch_drops;
-                    let state = if current { "ON / AÇIK / ВКЛЮЧЕНО" } else { "OFF / KAPALI / ВЫКЛЮЧЕНО" };
-                    (format!("⚙️ auto_drops is currently: *{}*\nUsage: `/auto_drops on` or `/auto_drops off`", state), None, None)
+                    let state = if current {
+                        pick(lang, "ON", "AÇIK", "ВКЛ")
+                    } else {
+                        pick(lang, "OFF", "KAPALI", "ВЫКЛ")
+                    };
+                    (format!("⚙️ `auto_drops`: *{}*\n`/auto_drops on` | `/auto_drops off`", state), None, None)
                 }
             }
         }
@@ -891,26 +1044,73 @@ RU: Добро пожаловать! Введи /help для списка ком
             };
             if accounts.is_empty() {
                 return (
-                    "⚠️ EN: No accounts added.\nTR: Hiç hesap eklenmemiş.\nRU: Аккаунты не добавлены.".to_string(),
+                    pick(lang, "⚠️ No accounts added.", "⚠️ Hiç hesap eklenmemiş.", "⚠️ Аккаунты не добавлены.").to_string(),
                     None, None,
                 );
             }
-            let mut out = String::from("👤 *SupBooster Accounts / Hesaplar / Аккаунты*\n\n");
+            let title = pick(lang, "Accounts", "Hesaplar", "Аккаунты");
+            let mut out = format!("👤 *SupBooster — {}*\n\n", title);
             for (i, arc) in accounts.iter().enumerate() {
                 let a = arc.lock().unwrap();
                 let icon = match &a.status {
-                    AccountStatus::Boosting  => "🟢",
-                    AccountStatus::Idle      => "⚪",
-                    AccountStatus::Error(_)  => "🔴",
-                    _                        => "🟡",
+                    AccountStatus::Boosting => "🟢",
+                    AccountStatus::Idle => "⚪",
+                    AccountStatus::Error(_) => "🔴",
+                    _ => "🟡",
                 };
-                out.push_str(&format!(
-                    "{}. {} *{}* (ID: `{}`)\n",
-                    i + 1, icon, a.username, a.id
-                ));
+                out.push_str(&format!("{}. {} *{}* (ID: `{}`)\n", i + 1, icon, a.username, a.id));
             }
-            out.push_str("\nUse `/switch <account>` to set default.");
+            let hint = pick(
+                lang,
+                "\nUse `/switch <account>` to set default.",
+                "\nVarsayılan hesap için `/switch <hesap>` kullan.",
+                "\nДля выбора по умолчанию: `/switch <аккаунт>`.",
+            );
+            out.push_str(hint);
             (out, None, None)
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // /addaccount <username> | <password>
+        // ─────────────────────────────────────────────────────────────
+        "/addaccount" => {
+            let rest = command.split_once(char::is_whitespace).map(|(_, r)| r.trim()).unwrap_or("");
+            if let Some((u_raw, p_raw)) = rest.split_once('|') {
+                let user = u_raw.trim();
+                let pass = p_raw.trim();
+                if user.is_empty() || pass.is_empty() {
+                    return (
+                        pick(
+                            lang,
+                            "❌ Usage: `/addaccount <username> | <password>`",
+                            "❌ Kullanım: `/addaccount <kullanıcı adı> | <şifre>`",
+                            "❌ Формат: `/addaccount <логин> | <пароль>`",
+                        ).to_string(),
+                        None, None,
+                    );
+                }
+                match add_account_remote(user, pass, None, None) {
+                    Ok(id) => {
+                        let msg = match lang {
+                            Language::English => format!("✅ Account `{}` added! (ID: `{}`)\nStart: `/start_boost {}`", user, id, user),
+                            Language::Turkish => format!("✅ `{}` hesabı eklendi! (ID: `{}`)\nBaşlat: `/start_boost {}`", user, id, user),
+                            Language::Russian => format!("✅ Аккаунт `{}` добавлен! (ID: `{}`)\nЗапуск: `/start_boost {}`", user, id, user),
+                        };
+                        (msg, None, None)
+                    }
+                    Err(e) => (format!("❌ {}", e), None, None),
+                }
+            } else {
+                (
+                    pick(
+                        lang,
+                        "❌ Usage: `/addaccount <username> | <password>`",
+                        "❌ Kullanım: `/addaccount <kullanıcı adı> | <şifre>`",
+                        "❌ Формат: `/addaccount <логин> | <пароль>`",
+                    ).to_string(),
+                    None, None,
+                )
+            }
         }
 
         // ─────────────────────────────────────────────────────────────
@@ -919,11 +1119,15 @@ RU: Добро пожаловать! Введи /help для списка ком
         "/switch" => {
             if parts.len() < 2 {
                 let current = get_selected_account();
-                let display = if current.is_empty() { "none".to_string() } else { current };
-                return (format!("⚙️ EN: Current default account: `{}`\nUsage: `/switch <account>`", display), None, None);
+                let display = if current.is_empty() { "-".to_string() } else { current };
+                let msg = match lang {
+                    Language::English => format!("⚙️ Default account: `{}`\nUsage: `/switch <account>`", display),
+                    Language::Turkish => format!("⚙️ Varsayılan hesap: `{}`\nKullanım: `/switch <hesap>`", display),
+                    Language::Russian => format!("⚙️ Аккаунт по умолчанию: `{}`\nФормат: `/switch <аккаунт>`", display),
+                };
+                return (msg, None, None);
             }
             let target = parts[1];
-            // Verify account exists
             let accounts = get_runtime_accounts();
             let target_l = target.to_lowercase();
             let found = accounts.iter().any(|arc| {
@@ -932,12 +1136,14 @@ RU: Добро пожаловать! Введи /help для списка ком
             });
             if found {
                 set_selected_account(target);
-                (format!(
-                    "✅ EN: Default account set to `{}`\nTR: Varsayılan hesap `{}` olarak ayarlandı\nRU: Аккаунт по умолчанию: `{}`",
-                    target, target, target
-                ), None, None)
+                let msg = match lang {
+                    Language::English => format!("✅ Default account set to `{}`.", target),
+                    Language::Turkish => format!("✅ Varsayılan hesap `{}` olarak ayarlandı.", target),
+                    Language::Russian => format!("✅ Аккаунт по умолчанию: `{}`.", target),
+                };
+                (msg, None, None)
             } else {
-                (format!("❌ Account `{}` not found.", target), None, None)
+                (format!("❌ `{}` not found.", target), None, None)
             }
         }
 
@@ -952,19 +1158,33 @@ RU: Добро пожаловать! Введи /help для списка ком
                     config.settings.telegram_notify_cards = true;
                     config.save();
                     crate::data::update_global_settings(&config.settings);
-                    ("🔔 EN: Card drop notifications ON\nTR: Kart düşme bildirimleri AÇIK\nRU: Уведомления о дропах ВКЛЮЧЕНЫ".to_string(), None, None)
+                    (pick(
+                        lang,
+                        "🔔 Card drop notifications ON.",
+                        "🔔 Kart düşme bildirimleri AÇIK.",
+                        "🔔 Уведомления о дропах ВКЛЮЧЕНЫ.",
+                    ).to_string(), None, None)
                 }
                 Some("off") => {
                     let mut config = crate::data::AppConfig::load();
                     config.settings.telegram_notify_cards = false;
                     config.save();
                     crate::data::update_global_settings(&config.settings);
-                    ("🔕 EN: Card drop notifications OFF\nTR: Kart düşme bildirimleri KAPALI\nRU: Уведомления о дропах ВЫКЛЮЧЕНЫ".to_string(), None, None)
+                    (pick(
+                        lang,
+                        "🔕 Card drop notifications OFF.",
+                        "🔕 Kart düşme bildirimleri KAPALI.",
+                        "🔕 Уведомления о дропах ВЫКЛЮЧЕНЫ.",
+                    ).to_string(), None, None)
                 }
                 _ => {
                     let current = get_global_settings().telegram_notify_cards;
-                    let state = if current { "ON / AÇIK / ВКЛЮЧЕНЫ" } else { "OFF / KAPALI / ВЫКЛЮЧЕНЫ" };
-                    (format!("⚙️ drop_notify is currently: *{}*\nUsage: `/drop_notify on` or `/drop_notify off`", state), None, None)
+                    let state = if current {
+                        pick(lang, "ON", "AÇIK", "ВКЛ")
+                    } else {
+                        pick(lang, "OFF", "KAPALI", "ВЫКЛ")
+                    };
+                    (format!("⚙️ `drop_notify`: *{}*\n`/drop_notify on` | `/drop_notify off`", state), None, None)
                 }
             }
         }
@@ -976,32 +1196,27 @@ RU: Добро пожаловать! Введи /help для списка ком
             let target_opt = resolve_account(parts.get(1).copied());
             match target_opt {
                 None => (
-                    "❌ EN: No account specified.\nTR: Hesap belirtilmedi.\nRU: Аккаунт не указан.".to_string(),
+                    pick(lang, "❌ No account specified.", "❌ Hesap belirtilmedi.", "❌ Аккаунт не указан.").to_string(),
                     None, None
                 ),
                 Some(target) => {
-                    // Try to get QR challenge URL from qr_auth module
                     let qr_url = crate::qr_auth::get_current_challenge_url();
-
                     match qr_url {
                         Some(url) if !url.is_empty() => {
-                            let msg = format!(
-                                "📱 QR Code for *{}*\n\
-EN: Scan with Steam mobile app to log in.\n\
-TR: Giriş yapmak için Steam mobil uygulamasıyla tara.\n\
-RU: Отсканируй в приложении Steam для входа.\n\n\
-🔗 `{}`",
-                                target, url
+                            let hint = pick(
+                                lang,
+                                "Scan with Steam mobile app to log in.",
+                                "Giriş yapmak için Steam mobil uygulamasıyla tara.",
+                                "Отсканируй в приложении Steam для входа.",
                             );
-                            (msg, None, None)
+                            (format!("📱 *QR ({})*\n{}\n\n🔗 `{}`", target, hint, url), None, None)
                         }
                         _ => {
-                            let msg = format!(
-                                "⚠️ EN: No active QR code for `{}`. Account may already be logged in.\n\
-TR: `{}` için aktif QR kod yok. Hesap zaten giriş yapmış olabilir.\n\
-RU: Нет активного QR-кода для `{}`. Аккаунт уже может быть авторизован.",
-                                target, target, target
-                            );
+                            let msg = match lang {
+                                Language::English => format!("⚠️ No active QR code for `{}`. Account may already be logged in.", target),
+                                Language::Turkish => format!("⚠️ `{}` için aktif QR kod yok. Hesap zaten giriş yapmış olabilir.", target),
+                                Language::Russian => format!("⚠️ Нет активного QR-кода для `{}`. Аккаунт уже может быть авторизован.", target),
+                            };
                             (msg, None, None)
                         }
                     }
@@ -1014,17 +1229,16 @@ RU: Нет активного QR-кода для `{}`. Аккаунт уже м�
         // ─────────────────────────────────────────────────────────────
         "/start_all" => {
             start_all_remote();
-            ("▶️ EN: Boost started for all accounts.\nTR: Tüm hesaplar için boost başlatıldı.\nRU: Буст запущен для всех аккаунтов.".to_string(), None, None)
+            (pick(lang, "▶️ Boost started for all accounts.", "▶️ Tüm hesaplar için boost başlatıldı.", "▶️ Буст запущен для всех аккаунтов.").to_string(), None, None)
         }
         "/stop_all" => {
             stop_all_remote();
-            ("⏹️ EN: Boost stopped for all accounts.\nTR: Tüm hesaplarda boost durduruldu.\nRU: Буст остановлен для всех аккаунтов.".to_string(), None, None)
+            (pick(lang, "⏹️ Boost stopped for all accounts.", "⏹️ Tüm hesaplarda boost durduruldu.", "⏹️ Буст остановлен для всех аккаунтов.").to_string(), None, None)
         }
         "/restart_all" => {
             restart_all_remote();
-            ("🔄 EN: Restarting all accounts...\nTR: Tüm hesaplar yeniden başlatılıyor...\nRU: Перезапуск всех аккаунтов...".to_string(), None, None)
+            (pick(lang, "🔄 Restarting all accounts...", "🔄 Tüm hesaplar yeniden başlatılıyor...", "🔄 Перезапуск всех аккаунтов...").to_string(), None, None)
         }
-
         "/addgame" if parts.len() >= 3 => {
             let target = parts[1];
             if let Ok(app_id) = parts[2].parse::<u32>() {
@@ -1033,7 +1247,7 @@ RU: Нет активного QR-кода для `{}`. Аккаунт уже м�
                     Err(e) => (e, None, None),
                 }
             } else {
-                ("❌ Invalid AppID. Example: `/addgame user1 730`".to_string(), None, None)
+                ("❌ Invalid AppID. `/addgame user1 730`".to_string(), None, None)
             }
         }
         "/removegame" if parts.len() >= 3 => {
@@ -1044,15 +1258,7 @@ RU: Нет активного QR-кода для `{}`. Аккаунт уже м�
                     Err(e) => (e, None, None),
                 }
             } else {
-                ("❌ Invalid AppID. Example: `/removegame user1 730`".to_string(), None, None)
-            }
-        }
-        "/addaccount" if parts.len() >= 3 => {
-            let user = parts[1];
-            let pass = parts[2];
-            match add_account_remote(user, pass, None, None) {
-                Ok(id) => (format!("✅ `{}` added! (ID: `{}`)\nTo start: `/start_boost {}`", user, id, user), None, None),
-                Err(e) => (format!("❌ Failed: {}", e), None, None),
+                ("❌ Invalid AppID. `/removegame user1 730`".to_string(), None, None)
             }
         }
         "/delaccount" if parts.len() > 1 => {
@@ -1070,12 +1276,12 @@ RU: Нет активного QR-кода для `{}`. Аккаунт уже м�
         "/cards" => {
             let cards = crate::inventory::get_recent_card_drops();
             if cards.is_empty() {
-                return ("🃏 EN: No dropped cards recorded yet.\nTR: Henüz düşen kart yok.\nRU: Дропов пока нет.".to_string(), None, None);
+                return (pick(lang, "🃏 No dropped cards recorded yet.", "🃏 Henüz düşen kart yok.", "🃏 Дропов пока нет.").to_string(), None, None);
             }
-            let mut msg = format!("🃏 *Recently Dropped Cards ({})*\n\n", cards.len());
+            let mut msg = format!("🃏 *Cards ({})*\n\n", cards.len());
             for c in cards.iter().rev().take(10) {
                 let price_str = if c.market_price.is_empty() { "-" } else { &c.market_price };
-                msg.push_str(&format!("• *{}* — `{}`\n  └ Card: *{}* ({})\n", c.game_name, c.username, c.card_name, price_str));
+                msg.push_str(&format!("• *{}* — `{}`\n  └ *{}* ({})\n", c.game_name, c.username, c.card_name, price_str));
             }
             (msg, None, None)
         }
@@ -1083,13 +1289,13 @@ RU: Нет активного QR-кода для `{}`. Аккаунт уже м�
             let query = parts[1..].join(" ");
             let results = search_steam_games(&query).await;
             if results.is_empty() {
-                return (format!("🔍 No results for `{}`.", query), None, None);
+                return (format!("🔍 `{}` — 0", query), None, None);
             }
-            let mut reply = format!("🔍 *\"{}\"* Results:\n\n", query);
+            let mut reply = format!("🔍 *\"{}\"*:\n\n", query);
             for item in results.iter().take(8) {
                 let id = item.get("app_id").and_then(|v| v.as_u64()).unwrap_or(0);
                 let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
-                reply.push_str(&format!("• *{}* — `{}`\n  `/add_game {} <account>`\n", name, id, id));
+                reply.push_str(&format!("• *{}* — `{}`\n  `/add_game {}`\n", name, id, id));
             }
             (reply, None, None)
         }
@@ -1097,9 +1303,15 @@ RU: Нет активного QR-кода для `{}`. Аккаунт уже м�
         // ─────────────────────────────────────────────────────────────
         // Unknown command
         // ─────────────────────────────────────────────────────────────
-        _ => {
-            ("❓ EN: Unknown command. Type `/help`.\nTR: Bilinmeyen komut. `/help` yaz.\nRU: Неизвестная команда. Введи `/help`.".to_string(), None, None)
-        }
+        _ => (
+            pick(
+                lang,
+                "❓ Unknown command. Type `/help`.",
+                "❓ Bilinmeyen komut. `/help` yazabilirsin.",
+                "❓ Неизвестная команда. Введи `/help`.",
+            ).to_string(),
+            None, None,
+        ),
     }
 }
 
@@ -1120,26 +1332,42 @@ pub fn send_telegram_alert(message: &str) {
 }
 
 async fn handle_callback_query(data: &str) -> String {
+    let lang = get_global_settings().telegram_language;
     let parts: Vec<&str> = data.split(':').collect();
     match parts.as_slice() {
+        ["set_lang", code] => {
+            if let Some(new_lang) = parse_lang_arg(code) {
+                set_telegram_language(new_lang);
+                pick(
+                    new_lang,
+                    "✅ Bot language set to *English*.",
+                    "✅ Bot dili *Türkçe* olarak ayarlandı.",
+                    "✅ Язык бота переключён на *Русский*.",
+                ).to_string()
+            } else {
+                String::new()
+            }
+        }
         ["stop_boost", target] => match stop_account_remote(target) {
-            Ok(_) => format!(
-                "⏹️ EN: Boost stopped for `{}`\nTR: `{}` için boost durduruldu\nRU: Буст остановлен для `{}`",
-                target, target, target
-            ),
+            Ok(_) => match lang {
+                Language::English => format!("⏹️ Boost stopped for `{}`.", target),
+                Language::Turkish => format!("⏹️ `{}` için boost durduruldu.", target),
+                Language::Russian => format!("⏹️ Буст остановлен для `{}`.", target),
+            },
             Err(e) => e,
         },
         ["start_boost", target] => match start_account_remote(target) {
-            Ok(_) => format!(
-                "▶️ EN: Boost started for `{}`\nTR: `{}` için boost başlatıldı\nRU: Буст запущен для `{}`",
-                target, target, target
-            ),
+            Ok(_) => match lang {
+                Language::English => format!("▶️ Boost started for `{}`.", target),
+                Language::Turkish => format!("▶️ `{}` için boost başlatıldı.", target),
+                Language::Russian => format!("▶️ Буст запущен для `{}`.", target),
+            },
             Err(e) => e,
         },
         ["add_game", target, app_id_str] => {
             if let Ok(app_id) = app_id_str.parse::<u32>() {
                 match add_game_remote(target, app_id, "") {
-                    Ok(msg) => format!("{}\nTR: Oyun eklendi.\nRU: Игра добавлена.", msg),
+                    Ok(msg) => msg,
                     Err(e) => e,
                 }
             } else {
@@ -1186,10 +1414,14 @@ async fn send_qr_photo(
         return false;
     }
 
-    let caption = format!(
-        "📱 QR Code ({})\nEN: Scan with Steam mobile app.\nTR: Steam mobil uygulamasıyla tara.\nRU: Отсканируй в приложении Steam.",
-        target
+    let lang = get_global_settings().telegram_language;
+    let scan_hint = pick(
+        lang,
+        "Scan with Steam mobile app.",
+        "Steam mobil uygulamasıyla tara.",
+        "Отсканируй в приложении Steam.",
     );
+    let caption = format!("📱 QR Code ({})\n{}", target, scan_hint);
     let part = reqwest::multipart::Part::bytes(png_bytes)
         .file_name("qr.png")
         .mime_str("image/png");

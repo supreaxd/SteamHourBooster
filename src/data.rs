@@ -366,6 +366,8 @@ pub struct AppSettings {
     pub auto_switch_drops: bool,
     #[serde(default)]
     pub sell_strategy: SellStrategy,
+    #[serde(default)]
+    pub telegram_language: Language,
 }
 
 fn default_github_repo() -> String {
@@ -452,6 +454,7 @@ impl Default for AppSettings {
             custom_colors: CustomThemeColors::default(),
             auto_switch_drops: true,
             sell_strategy: SellStrategy::QuickSell,
+            telegram_language: Language::English,
         }
     }
 }
