@@ -3,7 +3,6 @@ use eframe::egui::{self, Color32, FontId, RichText, Rounding, ScrollArea, Stroke
 use crate::data::{Account, AccountStatus, CustomThemeColors, ThemeMode};
 use crate::i18n::Strings;
 use crate::inventory::{get_account_inventory, get_cached_active_drops};
-use crate::logger::{get_logs, LogLevel};
 use crate::ui::theme::ThemeEngine;
 
 pub struct DashboardView;
@@ -14,7 +13,7 @@ impl DashboardView {
         accounts: &[Arc<Mutex<Account>>],
         colors: &CustomThemeColors,
         theme_mode: ThemeMode,
-        _strings: &Strings,
+        strings: &Strings,
     ) {
         let accent = Color32::from_rgb(colors.accent[0], colors.accent[1], colors.accent[2]);
 
@@ -50,40 +49,40 @@ impl DashboardView {
                 // Stat 1: Active Accounts
                 ThemeEngine::card_frame(theme_mode, colors).show(&mut cols[0], |ui| {
                     ui.vertical(|ui| {
-                        ui.label(RichText::new("👤 Active Accounts").font(FontId::proportional(11.0)).color(Color32::from_rgb(140, 160, 180)));
+                        ui.label(RichText::new(strings.pick("👤 Active Accounts", "👤 Aktif Hesaplar", "👤 Активные аккаунты")).font(FontId::proportional(11.0)).color(Color32::from_rgb(140, 160, 180)));
                         ui.add_space(2.0);
                         ui.label(RichText::new(format!("{}", active_accounts)).font(FontId::proportional(22.0)).color(Color32::from_rgb(90, 210, 120)));
-                        ui.label(RichText::new(format!("Total {} accounts", accounts.len())).font(FontId::proportional(10.5)).color(Color32::from_rgb(110, 130, 150)));
+                        ui.label(RichText::new(format!("{} {}", accounts.len(), strings.pick("total accounts", "toplam hesap", "всего аккаунтов"))).font(FontId::proportional(10.5)).color(Color32::from_rgb(110, 130, 150)));
                     });
                 });
 
                 // Stat 2: Boosting Games
                 ThemeEngine::card_frame(theme_mode, colors).show(&mut cols[1], |ui| {
                     ui.vertical(|ui| {
-                        ui.label(RichText::new("🎮 Boosting Games").font(FontId::proportional(11.0)).color(Color32::from_rgb(140, 160, 180)));
+                        ui.label(RichText::new(strings.pick("🎮 Boosting Games", "🎮 Kasılan Oyunlar", "🎮 Бустятся игры")).font(FontId::proportional(11.0)).color(Color32::from_rgb(140, 160, 180)));
                         ui.add_space(2.0);
                         ui.label(RichText::new(format!("{}", total_boosting_games)).font(FontId::proportional(22.0)).color(accent));
-                        ui.label(RichText::new("Simultaneously active").font(FontId::proportional(10.5)).color(Color32::from_rgb(110, 130, 150)));
+                        ui.label(RichText::new(strings.pick("Simultaneously active", "Eşzamanlı aktif", "Одновременно активно")).font(FontId::proportional(10.5)).color(Color32::from_rgb(110, 130, 150)));
                     });
                 });
 
                 // Stat 3: Remaining Card Drops
                 ThemeEngine::card_frame(theme_mode, colors).show(&mut cols[2], |ui| {
                     ui.vertical(|ui| {
-                        ui.label(RichText::new("🃏 Remaining Card Drops").font(FontId::proportional(11.0)).color(Color32::from_rgb(140, 160, 180)));
+                        ui.label(RichText::new(strings.pick("🃏 Remaining Card Drops", "🃏 Kalan Kart Hakları", "🃏 Осталось карточек")).font(FontId::proportional(11.0)).color(Color32::from_rgb(140, 160, 180)));
                         ui.add_space(2.0);
                         ui.label(RichText::new(format!("{}", total_cards_left)).font(FontId::proportional(22.0)).color(Color32::from_rgb(255, 185, 60)));
-                        ui.label(RichText::new("Eligible drops left").font(FontId::proportional(10.5)).color(Color32::from_rgb(110, 130, 150)));
+                        ui.label(RichText::new(strings.pick("Eligible drops left", "Düşürülebilir kart", "Доступно дропов")).font(FontId::proportional(10.5)).color(Color32::from_rgb(110, 130, 150)));
                     });
                 });
 
                 // Stat 4: Inventory Items / Value
                 ThemeEngine::card_frame(theme_mode, colors).show(&mut cols[3], |ui| {
                     ui.vertical(|ui| {
-                        ui.label(RichText::new("🎒 Inventory Items").font(FontId::proportional(11.0)).color(Color32::from_rgb(140, 160, 180)));
+                        ui.label(RichText::new(strings.pick("🎒 Inventory Items", "🎒 Envanter Eşyaları", "🎒 Предметы инвентаря")).font(FontId::proportional(11.0)).color(Color32::from_rgb(140, 160, 180)));
                         ui.add_space(2.0);
                         ui.label(RichText::new(format!("{}", total_items)).font(FontId::proportional(22.0)).color(Color32::from_rgb(180, 140, 240)));
-                        ui.label(RichText::new("Cards & Items").font(FontId::proportional(10.5)).color(Color32::from_rgb(110, 130, 150)));
+                        ui.label(RichText::new(strings.pick("Cards & Items", "Kartlar & Eşyalar", "Карты и предметы")).font(FontId::proportional(10.5)).color(Color32::from_rgb(110, 130, 150)));
                     });
                 });
             });
@@ -92,7 +91,7 @@ impl DashboardView {
 
             // ─── ACTIVE BOOSTING GAMES SECTION ───
             ui.horizontal(|ui| {
-                ui.label(RichText::new("🚀 Active Boosting Sessions").font(FontId::proportional(15.0)).strong());
+                ui.label(RichText::new(strings.pick("🚀 Active Boosting Sessions", "🚀 Aktif Boost Oturumları", "🚀 Активные сессии буста")).font(FontId::proportional(15.0)).strong());
             });
             ui.add_space(6.0);
 
@@ -123,7 +122,7 @@ impl DashboardView {
                             }
 
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.button(RichText::new("⏹ Stop").font(FontId::proportional(11.5)).color(Color32::from_rgb(255, 120, 120))).clicked() {
+                                if ui.button(RichText::new(strings.btn_stop).font(FontId::proportional(11.5)).color(Color32::from_rgb(255, 120, 120))).clicked() {
                                     crate::steam::stop_boost(id, arc.clone());
                                 }
                             });
@@ -148,7 +147,7 @@ impl DashboardView {
                                             ui.add_space(4.0);
                                             ui.label(RichText::new(format!("(AppID: {})", g.app_id)).font(FontId::proportional(11.0)).color(Color32::from_rgb(120, 145, 175)));
                                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                                ui.label(RichText::new("🟢 Boosting").font(FontId::proportional(11.0)).color(Color32::from_rgb(70, 230, 130)));
+                                                ui.label(RichText::new(format!("🟢 {}", strings.status_boosting)).font(FontId::proportional(11.0)).color(Color32::from_rgb(70, 230, 130)));
                                             });
                                         });
                                     });
@@ -164,44 +163,12 @@ impl DashboardView {
                 ThemeEngine::card_frame(theme_mode, colors).show(ui, |ui| {
                     ui.vertical_centered(|ui| {
                         ui.add_space(14.0);
-                        ui.label(RichText::new("⚪ No accounts currently boosting hours").font(FontId::proportional(13.5)).color(Color32::from_rgb(130, 150, 175)));
-                        ui.label(RichText::new("Select an account from the Accounts tab and click 'Start' to begin boosting.").font(FontId::proportional(11.5)).color(Color32::from_rgb(100, 120, 140)));
+                        ui.label(RichText::new(strings.pick("⚪ No accounts currently boosting hours", "⚪ Şu anda saat kasan hesap yok", "⚪ Сейчас нет активного буста")).font(FontId::proportional(13.5)).color(Color32::from_rgb(130, 150, 175)));
+                        ui.label(RichText::new(strings.pick("Select an account from the Accounts tab and click 'Start' to begin boosting.", "Başlamak için Hesaplar sekmesinden bir hesap seçip 'Başlat'a tıklayın.", "Выберите аккаунт во вкладке Аккаунты и нажмите 'Старт'.")).font(FontId::proportional(11.5)).color(Color32::from_rgb(100, 120, 140)));
                         ui.add_space(14.0);
                     });
                 });
             }
-
-            ui.add_space(14.0);
-
-            // ─── BOTTOM LIVE ACTIVITY FEED ───
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("📋 Live Activity Feed").font(FontId::proportional(14.0)).strong());
-            });
-            ui.add_space(4.0);
-
-            ThemeEngine::card_frame(theme_mode, colors).show(ui, |ui| {
-                ScrollArea::vertical().max_height(160.0).stick_to_bottom(true).show(ui, |ui| {
-                    let logs = get_logs();
-                    if logs.is_empty() {
-                        ui.label(RichText::new("No system activity yet.").font(FontId::proportional(11.5)).color(Color32::from_rgb(110, 130, 150)));
-                    } else {
-                        for entry in logs.iter().rev().take(30) {
-                            ui.horizontal(|ui| {
-                                let (color, prefix) = match entry.level {
-                                    LogLevel::Success => (Color32::from_rgb(90, 215, 120), "✔"),
-                                    LogLevel::Error => (Color32::from_rgb(255, 100, 100), "✖"),
-                                    LogLevel::Warn => (Color32::from_rgb(255, 185, 60), "⚠"),
-                                    LogLevel::Info => (Color32::from_rgb(140, 170, 205), "ℹ"),
-                                };
-
-                                ui.label(RichText::new(&entry.timestamp).font(FontId::monospace(10.5)).color(Color32::from_rgb(90, 110, 130)));
-                                ui.label(RichText::new(prefix).font(FontId::monospace(11.0)).color(color));
-                                ui.label(RichText::new(&entry.message).font(FontId::proportional(11.5)).color(color));
-                            });
-                        }
-                    }
-                });
-            });
 
             ui.add_space(12.0);
         });

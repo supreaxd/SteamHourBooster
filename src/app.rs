@@ -11,6 +11,7 @@ use crate::ui::accounts::AccountsView;
 use crate::ui::active_drops::ActiveDropsView;
 use crate::ui::dashboard::DashboardView;
 use crate::ui::inventory::InventoryView;
+use crate::ui::logs::LogsView;
 use crate::ui::modals::ModalManager;
 use crate::ui::settings::SettingsView;
 use crate::ui::sidebar::{NavTab, Sidebar};
@@ -427,6 +428,8 @@ impl eframe::App for SteamBoosterApp {
             });
 
         // ─── 3. CENTRAL PANEL (Active Tab Router) ───
+        let prev_settings_json = serde_json::to_string(&self.config.settings).ok();
+
         egui::CentralPanel::default().show(ctx, |ui| {
             match self.active_tab {
                 NavTab::Dashboard => {
@@ -481,6 +484,14 @@ impl eframe::App for SteamBoosterApp {
                         &strings,
                     );
                 }
+                NavTab::Logs => {
+                    LogsView::draw(
+                        ui,
+                        &self.config.settings.custom_colors,
+                        self.config.settings.theme_mode,
+                        &strings,
+                    );
+                }
                 NavTab::Settings => {
                     self.settings_view.draw(
                         ui,
@@ -491,6 +502,11 @@ impl eframe::App for SteamBoosterApp {
                 }
             }
         });
+
+        // Immediately save whenever any setting changes
+        if serde_json::to_string(&self.config.settings).ok() != prev_settings_json {
+            self.config.save();
+        }
 
         // ─── 4. MODALS ───
         // Bulk Sell Confirmation Modal

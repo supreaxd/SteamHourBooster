@@ -2,6 +2,7 @@ pub mod accounts;
 pub mod active_drops;
 pub mod dashboard;
 pub mod inventory;
+pub mod logs;
 pub mod modals;
 pub mod settings;
 pub mod sidebar;

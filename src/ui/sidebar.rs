@@ -10,6 +10,7 @@ pub enum NavTab {
     Inventory,
     Accounts,
     Telegram,
+    Logs,
     Settings,
 }
 
@@ -37,6 +38,7 @@ impl Sidebar {
                 (NavTab::Inventory, strings.tab_inventory, "🎒"),
                 (NavTab::Accounts, strings.tab_accounts, "👤"),
                 (NavTab::Telegram, strings.tab_telegram, "🤖"),
+                (NavTab::Logs, strings.tab_logs, "📋"),
                 (NavTab::Settings, strings.tab_settings, "⚙️"),
             ];
 
@@ -64,7 +66,7 @@ impl Sidebar {
                     ui.add_space(4.0);
 
                     let changelog_btn = ui.link(
-                        RichText::new("Changelogs")
+                        RichText::new(strings.changelogs_text)
                             .font(FontId::proportional(11.5))
                             .color(Color32::from_rgb(130, 145, 170)),
                     );
