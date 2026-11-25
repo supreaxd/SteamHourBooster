@@ -1,9 +1,24 @@
 use qrcode::QrCode;
 use serde::Deserialize;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tokio::sync::watch;
 use crate::steam::get_runtime;
+
+// Global registry for the most recent QR challenge URL (set when QR is displayed to user)
+static CURRENT_QR_URL: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+
+pub fn set_current_challenge_url(url: Option<String>) {
+    let cell = CURRENT_QR_URL.get_or_init(|| Mutex::new(None));
+    if let Ok(mut g) = cell.lock() {
+        *g = url;
+    }
+}
+
+pub fn get_current_challenge_url() -> Option<String> {
+    let cell = CURRENT_QR_URL.get_or_init(|| Mutex::new(None));
+    cell.lock().ok().and_then(|g| g.clone())
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum QrAuthStatus {
@@ -153,6 +168,8 @@ impl QrAuthManager {
                     modules,
                     width,
                 };
+                // Store URL globally so /qr Telegram command can retrieve it
+                set_current_challenge_url(Some(challenge_url.clone()));
             }
 
             let poll_interval = match begin.interval {
@@ -194,6 +211,7 @@ impl QrAuthManager {
                                                     modules,
                                                     width,
                                                 };
+                                                set_current_challenge_url(Some(challenge_url.clone()));
                                             }
                                         }
                                     }

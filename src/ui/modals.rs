@@ -271,6 +271,7 @@ impl ModalManager {
                 ui.add_space(4.0);
 
                 let bullets = [
+                    "• Full Telegram Bot Rewrite (15 Commands, Trilingual EN/TR/RU): Complete command suite (/start, /help, /status, /start_boost, /stop_boost, /restart, /drops, /games, /add_game, /remove_game, /auto_drops, /accounts, /switch, /drop_notify, /qr) with inline action buttons, silent unauthorized chat filtering, and PNG QR code delivery.",
                     "• Dedicated Library Scrolling: Fixed vertical scrolling bug in Account Owned Games. Expanded scroll area with persistent visible scrollbar for browsing large libraries effortlessly.",
                     "• One-Click '＋ Add All to Boost': Instant button in the library header to add all owned games into your boost queue at once.",
                     "• Account Deletion & Config Synchronization: Fixed bug where removing an account failed to delete it from the app and config.json. Immediately syncs deletions to disk and halts active workers.",

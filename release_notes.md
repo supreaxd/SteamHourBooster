@@ -1,3 +1,18 @@
+# 🚀 SupBooster v1.2.2 (Telegram Bot Overhaul)
+
+Welcome to **v1.2.2** of **SupBooster** (`SupBoost.exe`)! This release completely rewrites the Telegram Bot command system with 15 trilingual commands, inline action buttons, and QR image delivery.
+
+---
+
+### 🤖 1. Complete Telegram Bot Rewrite (EN / TR / RU)
+- **All 15 Commands Implemented:** `/start`, `/help`, `/status`, `/start_boost`, `/stop_boost`, `/restart`, `/drops`, `/games`, `/add_game`, `/remove_game`, `/auto_drops`, `/accounts`, `/switch`, `/drop_notify`, and `/qr`.
+- **Trilingual Responses:** Every command reply displays English, Turkish, and Russian together in a single clean message.
+- **Interactive Inline Buttons:** `/status` includes per-account `Start` / `Stop` buttons and `/drops` includes one-tap `Boost <Game>` buttons with full `callback_query` support.
+- **QR Code Image Delivery:** `/qr` renders and sends the Steam QR login image directly in chat via `sendPhoto`.
+- **Silent Chat ID Authorization:** Unauthorized Chat IDs are silently ignored without leaking responses.
+
+---
+
 # 🚀 SupBooster v1.2.1 (Maintenance & Usability Release)
 
 Welcome to **v1.2.1** of **SupBooster** (`SupBoost.exe`)! This release addresses library browsing, batch boosting operations, and account lifecycle management.
