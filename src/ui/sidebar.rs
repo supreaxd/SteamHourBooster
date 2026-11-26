@@ -1,6 +1,9 @@
-use eframe::egui::{self, Color32, FontId, Pos2, Rect, Response, RichText, Rounding, Sense, Stroke, Ui, Vec2};
-use crate::data::CustomThemeColors;
+use std::sync::{Arc, Mutex};
+use eframe::egui::{self, Color32, FontId, Pos2, Response, RichText, Rounding, Sense, Stroke, Ui, Vec2};
+use crate::data::{Account, AccountStatus, CustomThemeColors, ThemeMode};
 use crate::i18n::Strings;
+use crate::inventory::get_cached_active_drops;
+use crate::ui::components::{muted_text, prism_brand_badge, prism_progress_bar};
 use crate::updater::{UpdateManager, UpdateState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -8,10 +11,20 @@ pub enum NavTab {
     Dashboard,
     ActiveDrops,
     Inventory,
+    TradeBalance,
     Accounts,
-    Telegram,
     Logs,
+    Telegram,
     Settings,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidebarAction {
+    None,
+    OpenAllAccounts,
+    SelectAccount(u64),
+    AddAccount,
+    ThemeToggled,
 }
 
 pub struct Sidebar;
@@ -20,193 +33,407 @@ impl Sidebar {
     pub fn draw(
         ui: &mut Ui,
         current_tab: &mut NavTab,
+        accounts_expanded: &mut bool,
+        selected_account_id: Option<u64>,
+        accounts: &[Arc<Mutex<Account>>],
         colors: &CustomThemeColors,
+        theme_mode: &mut ThemeMode,
         strings: &Strings,
         updater: &UpdateManager,
         show_changelogs: &mut bool,
-    ) {
+    ) -> SidebarAction {
+        let mut action = SidebarAction::None;
         let accent = Color32::from_rgb(colors.accent[0], colors.accent[1], colors.accent[2]);
         let text_color = Color32::from_rgb(colors.text[0], colors.text[1], colors.text[2]);
+        let muted = muted_text(*theme_mode);
+
+        let mut active_accounts = 0usize;
+        let mut total_drops_left = 0u32;
+        for arc in accounts {
+            if let Ok(a) = arc.lock() {
+                if matches!(a.status, AccountStatus::Boosting) {
+                    active_accounts += 1;
+                }
+                if a.steam_id != 0 {
+                    for d in get_cached_active_drops(a.steam_id) {
+                        total_drops_left += d.remaining_cards;
+                    }
+                }
+            }
+        }
+
+        let inner_w = ui.available_width();
 
         ui.vertical(|ui| {
-            ui.add_space(8.0);
+            ui.set_width(inner_w);
+            ui.add_space(6.0);
 
-            // Tab items
-            let tabs = [
-                (NavTab::Dashboard, strings.tab_dashboard, "📊"),
-                (NavTab::ActiveDrops, strings.tab_active_drops, "🃏"),
-                (NavTab::Inventory, strings.tab_inventory, "🎒"),
-                (NavTab::Accounts, strings.tab_accounts, "👤"),
-                (NavTab::Telegram, strings.tab_telegram, "🤖"),
-                (NavTab::Logs, strings.tab_logs, "📋"),
-                (NavTab::Settings, strings.tab_settings, "⚙️"),
+            // ─── BRAND HEADER (SupBooster + 12px rounded icon) ───
+            ui.horizontal(|ui| {
+                ui.add_space(8.0);
+                prism_brand_badge(ui, accent);
+                ui.add_space(8.0);
+                ui.vertical(|ui| {
+                    ui.label(RichText::new("SupBooster").font(FontId::proportional(15.5)).strong());
+                    ui.label(
+                        RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
+                            .font(FontId::proportional(10.0))
+                            .color(muted),
+                    );
+                });
+            });
+
+            ui.add_space(10.0);
+
+            // ─── MAIN VIEWS ───
+            let main_tabs = [
+                (NavTab::Dashboard, strings.tab_dashboard, "■"),
+                (NavTab::ActiveDrops, strings.tab_active_drops, "♦"),
+                (NavTab::Inventory, strings.tab_inventory, "▣"),
+                (NavTab::TradeBalance, strings.tab_trade_balance, "⚖"),
             ];
 
-            for (tab, label, icon) in tabs {
+            for (tab, label, icon) in main_tabs {
                 let is_active = *current_tab == tab;
-                if draw_nav_button(ui, icon, label, is_active, accent, text_color).clicked() {
+                if draw_prism_nav_item(ui, icon, None, label, None, is_active, *theme_mode, accent, text_color).clicked() {
                     *current_tab = tab;
                 }
-                ui.add_space(3.0);
+                ui.add_space(2.0);
             }
 
-            ui.add_space(16.0);
+            ui.add_space(8.0);
 
-            // Push the rest of the content to the bottom
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-                ui.add_space(8.0);
-
-                let update_state = updater.state.lock().unwrap().clone();
-
-                // 1. Regular Changelogs link at the very bottom
-                ui.horizontal(|ui| {
-                    ui.add_space(12.0);
-                    let (rect, _) = ui.allocate_exact_size(Vec2::splat(8.0), Sense::hover());
-                    ui.painter().circle_filled(rect.center(), 3.5, Color32::from_rgb(70, 85, 105));
-                    ui.add_space(4.0);
-
-                    let changelog_btn = ui.link(
-                        RichText::new(strings.changelogs_text)
-                            .font(FontId::proportional(11.5))
-                            .color(Color32::from_rgb(130, 145, 170)),
-                    );
-
-                    if changelog_btn.clicked() {
-                        *show_changelogs = true;
-                    }
-                });
-
-                ui.add_space(3.0);
-
-                // 2. If a new version exists, display it directly ABOVE the "Changelogs" text!
-                match &update_state {
-                    UpdateState::UpdateAvailable { version, .. } => {
-                        ui.horizontal(|ui| {
-                            ui.add_space(8.0);
-                            let new_ver_label = format!("🚀 Changelogs (v{})", version);
-                            let update_frame = egui::Frame::none()
-                                .fill(Color32::from_rgba_unmultiplied(255, 155, 30, 32))
-                                .rounding(Rounding::same(6.0))
-                                .stroke(Stroke::new(1.0_f32, Color32::from_rgb(255, 165, 30)))
-                                .inner_margin(egui::Margin::symmetric(8.0, 3.5))
-                                .show(ui, |ui| {
-                                    ui.horizontal(|ui| {
-                                        let (dot_rect, _) = ui.allocate_exact_size(Vec2::splat(7.0), Sense::hover());
-                                        ui.painter().circle_filled(dot_rect.center(), 3.5, Color32::from_rgb(255, 165, 30));
-                                        ui.add_space(2.0);
-                                        ui.label(RichText::new(new_ver_label).font(FontId::proportional(11.5)).strong().color(Color32::from_rgb(255, 185, 50)))
-                                    })
-                                });
-
-                            if update_frame.response.interact(Sense::click()).clicked() {
-                                *show_changelogs = true;
-                            }
-                        });
-                        ui.add_space(4.0);
-                    }
-                    UpdateState::Downloading { progress, .. } => {
-                        ui.horizontal(|ui| {
-                            ui.add_space(12.0);
-                            ui.spinner();
-                            ui.add_space(4.0);
-                            ui.label(RichText::new(format!("Downloading... {:.0}%", progress * 100.0)).font(FontId::proportional(11.0)).color(Color32::from_rgb(100, 195, 255)));
-                        });
-                        ui.add_space(4.0);
-                    }
-                    UpdateState::ReadyToRestart => {
-                        ui.horizontal(|ui| {
-                            ui.add_space(12.0);
-                            ui.label(RichText::new("🔄 Restarting to apply...").font(FontId::proportional(11.0)).color(Color32::from_rgb(90, 230, 140)).strong());
-                        });
-                        ui.add_space(4.0);
-                    }
-                    UpdateState::Checking => {
-                        ui.horizontal(|ui| {
-                            ui.add_space(12.0);
-                            ui.spinner();
-                            ui.add_space(4.0);
-                            ui.label(RichText::new("Checking updates...").font(FontId::proportional(10.5)).color(Color32::from_rgb(130, 150, 175)));
-                        });
-                        ui.add_space(4.0);
-                    }
-                    UpdateState::Error(_) => {
-                        ui.horizontal(|ui| {
-                            ui.add_space(12.0);
-                            let retry = ui.link(RichText::new("⚠️ Update check (Retry)").font(FontId::proportional(10.5)).color(Color32::from_rgb(255, 130, 110)));
-                            if retry.clicked() {
-                                crate::updater::check_for_updates(updater.state.clone(), "supreaxd/SteamHourBooster".to_string());
-                            }
-                        });
-                        ui.add_space(4.0);
-                    }
-                    _ => {}
+            // ─── COLLAPSIBLE ACCOUNTS SECTION ───
+            // Triangle button toggles collapse; "ACCOUNTS (N)" text opens all accounts grid on the right
+            ui.horizontal(|ui| {
+                ui.add_space(6.0);
+                let arrow = if *accounts_expanded { "▾" } else { "▸" };
+                if ui
+                    .add(
+                        egui::Button::new(RichText::new(arrow).font(FontId::proportional(12.0)).color(muted))
+                            .fill(Color32::TRANSPARENT)
+                            .stroke(Stroke::NONE)
+                            .min_size(Vec2::splat(18.0)),
+                    )
+                    .clicked()
+                {
+                    *accounts_expanded = !*accounts_expanded;
                 }
 
-                ui.separator();
+                let is_all_acc_active = *current_tab == NavTab::Accounts && selected_account_id.is_none();
+                let header_col = if is_all_acc_active { Color32::WHITE } else { muted };
+                if ui
+                    .add(
+                        egui::Button::new(
+                            RichText::new(format!(
+                                "{} ({})",
+                                strings.pick("ACCOUNTS", "HESAPLAR", "АККАУНТЫ"),
+                                accounts.len()
+                            ))
+                            .font(FontId::proportional(10.5))
+                            .color(header_col)
+                            .strong(),
+                        )
+                        .fill(Color32::TRANSPARENT)
+                        .stroke(Stroke::NONE),
+                    )
+                    .clicked()
+                {
+                    action = SidebarAction::OpenAllAccounts;
+                }
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(6.0);
+                    if ui
+                        .small_button(RichText::new("+").font(FontId::proportional(13.0)).color(muted))
+                        .on_hover_text(strings.btn_manual_add)
+                        .clicked()
+                    {
+                        action = SidebarAction::AddAccount;
+                    }
+                });
+            });
+
+            if *accounts_expanded {
+                ui.add_space(2.0);
+                if accounts.is_empty() {
+                    ui.horizontal(|ui| {
+                        ui.add_space(16.0);
+                        ui.label(
+                            RichText::new(strings.pick("No accounts", "Hesap yok", "Нет аккаунтов"))
+                                .font(FontId::proportional(11.0))
+                                .color(muted),
+                        );
+                    });
+                } else {
+                    for arc in accounts {
+                        if let Ok(a) = arc.lock() {
+                            let dot_color = match &a.status {
+                                AccountStatus::Boosting => Color32::from_rgb(80, 225, 130),
+                                AccountStatus::Connecting | AccountStatus::Reconnecting { .. } => Color32::from_rgb(255, 195, 65),
+                                AccountStatus::AwaitingSteamGuard { .. } => Color32::from_rgb(255, 150, 50),
+                                AccountStatus::Error(_) => Color32::from_rgb(255, 95, 95),
+                                _ => Color32::from_rgb(120, 130, 150),
+                            };
+                            let is_acc_active = *current_tab == NavTab::Accounts && selected_account_id == Some(a.id);
+                            if draw_prism_nav_item(
+                                ui,
+                                "",
+                                Some(dot_color),
+                                &a.username,
+                                Some(a.games.len()),
+                                is_acc_active,
+                                *theme_mode,
+                                accent,
+                                text_color,
+                            )
+                            .clicked()
+                            {
+                                action = SidebarAction::SelectAccount(a.id);
+                            }
+                            ui.add_space(1.0);
+                        }
+                    }
+                }
+            }
+
+            ui.add_space(8.0);
+
+            // ─── TOOLS & QUEUES (No duplicate Accounts!) ───
+            ui.horizontal(|ui| {
+                ui.add_space(10.0);
+                ui.label(
+                    RichText::new(strings.pick("TOOLS & QUEUES", "KUYRUKLAR & ARAÇLAR", "ИНСТРУМЕНТЫ"))
+                        .font(FontId::proportional(10.5))
+                        .color(muted)
+                        .strong(),
+                );
+            });
+            ui.add_space(2.0);
+
+            let tool_tabs = [
+                (NavTab::Logs, strings.tab_logs, "☰"),
+                (NavTab::Telegram, strings.tab_telegram, "✈"),
+            ];
+            for (tab, label, icon) in tool_tabs {
+                let is_active = *current_tab == tab;
+                if draw_prism_nav_item(ui, icon, None, label, None, is_active, *theme_mode, accent, text_color).clicked() {
+                    *current_tab = tab;
+                }
+                ui.add_space(2.0);
+            }
+
+            // ─── BOTTOM SECTION (Changelogs at very bottom + Active Boost card above it) ───
+            ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                // Bottom-most row: Changelogs (+ update badge) on left, Theme Cycle + Settings on right
+                ui.add_space(4.0);
+                let update_state = updater.state.lock().unwrap().clone();
+                ui.allocate_ui_with_layout(
+                    Vec2::new((inner_w - 8.0).max(160.0), 28.0),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.add_space(8.0);
+                        if let UpdateState::UpdateAvailable { version, .. } = &update_state {
+                            ui.label(
+                                RichText::new(format!("● v{}", version))
+                                    .font(FontId::proportional(10.5))
+                                    .color(Color32::from_rgb(255, 175, 45))
+                                    .strong(),
+                            );
+                        }
+                        if ui
+                            .link(RichText::new(strings.changelogs_text).font(FontId::proportional(11.5)).color(muted))
+                            .clicked()
+                        {
+                            *show_changelogs = true;
+                        }
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.add_space(4.0);
+                            let is_settings = *current_tab == NavTab::Settings;
+                            let settings_col = if is_settings {
+                                accent
+                            } else if *theme_mode == ThemeMode::Light {
+                                Color32::from_rgb(20, 26, 34)
+                            } else {
+                                text_color
+                            };
+                            let settings_btn = egui::Button::new(
+                                RichText::new("⚙")
+                                    .font(FontId::proportional(14.0))
+                                    .color(settings_col),
+                            )
+                            .min_size(Vec2::splat(26.0));
+                            if ui.add(settings_btn).on_hover_text(strings.tab_settings).clicked() {
+                                *current_tab = NavTab::Settings;
+                            }
+
+                            let theme_icon = match *theme_mode {
+                                ThemeMode::Dark => "🌙",
+                                ThemeMode::Light => "☀",
+                                ThemeMode::Transparent => "🌫",
+                                ThemeMode::LiquidGlass => "💎",
+                                ThemeMode::System => "💻",
+                            };
+                            if ui
+                                .add(egui::Button::new(RichText::new(theme_icon).font(FontId::proportional(13.0))).min_size(Vec2::splat(26.0)))
+                                .on_hover_text(strings.pick("Cycle Theme", "Temayı Değiştir", "Сменить тему"))
+                                .clicked()
+                            {
+                                *theme_mode = match *theme_mode {
+                                    ThemeMode::Dark => ThemeMode::Transparent,
+                                    ThemeMode::Transparent => ThemeMode::LiquidGlass,
+                                    ThemeMode::LiquidGlass => ThemeMode::Light,
+                                    ThemeMode::Light => ThemeMode::Dark,
+                                    ThemeMode::System => ThemeMode::Dark,
+                                };
+                                action = SidebarAction::ThemeToggled;
+                            }
+                        });
+                    },
+                );
+
+                ui.add_space(10.0);
+
+                // Live Boosting / Card Drops Summary Box (narrower, higher up, zero clipping)
+                let card_stroke = if *theme_mode == ThemeMode::LiquidGlass {
+                    Stroke::new(1.2_f32, Color32::from_rgba_unmultiplied(235, 245, 255, 105))
+                } else if *theme_mode == ThemeMode::Light {
+                    Stroke::new(1.0_f32, Color32::from_rgb(210, 218, 230))
+                } else {
+                    Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 28))
+                };
+                let card_fill = if *theme_mode == ThemeMode::Light {
+                    Color32::from_rgb(235, 240, 247)
+                } else {
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 14)
+                };
+
+                ui.horizontal(|ui| {
+                    ui.add_space(8.0);
+                    egui::Frame::none()
+                        .fill(card_fill)
+                        .stroke(card_stroke)
+                        .rounding(Rounding::same(12.0))
+                        .inner_margin(egui::Margin::same(8.0))
+                        .show(ui, |ui| {
+                            ui.set_width((inner_w - 48.0).max(115.0));
+                            ui.label(
+                                RichText::new(strings.pick("ACTIVE BOOST / DROPS", "AKTİF KASMA / KART", "АКТИВНЫЙ БУСТ"))
+                                    .font(FontId::proportional(9.5))
+                                    .color(muted)
+                                    .strong(),
+                            );
+                            ui.add_space(3.0);
+                            ui.label(
+                                RichText::new(format!(
+                                    "{} {} · {} {}",
+                                    active_accounts,
+                                    strings.pick("acc", "hesap", "акк"),
+                                    total_drops_left,
+                                    strings.pick("drops", "kart", "дроп.")
+                                ))
+                                .font(FontId::proportional(12.5))
+                                .strong(),
+                            );
+                            ui.add_space(5.0);
+                            let frac = if accounts.is_empty() {
+                                0.0
+                            } else {
+                                active_accounts as f32 / accounts.len() as f32
+                            };
+                            prism_progress_bar(ui, frac, ui.available_width(), 4.0, accent);
+                        });
+                });
             });
         });
+
+        action
     }
 }
 
-fn draw_nav_button(
+fn draw_prism_nav_item(
     ui: &mut Ui,
     icon: &str,
+    dot_color: Option<Color32>,
     label: &str,
+    badge: Option<usize>,
     is_active: bool,
+    theme_mode: ThemeMode,
     accent: Color32,
     text_color: Color32,
 ) -> Response {
-    let desired_size = Vec2::new(ui.available_width() - 4.0, 38.0);
+    let desired_size = Vec2::new((ui.available_width() - 10.0).max(120.0), 30.0);
     let (rect, response) = ui.allocate_exact_size(desired_size, Sense::click());
+    let rect = rect.translate(Vec2::new(5.0, 0.0));
 
     if ui.is_rect_visible(rect) {
         let is_hovered = response.hovered();
+        let is_light = theme_mode == ThemeMode::Light;
 
-        // Background fill
         if is_active {
             ui.painter().rect_filled(
                 rect,
-                Rounding::same(7.0),
-                Color32::from_rgba_premultiplied(accent.r(), accent.g(), accent.b(), 45),
+                Rounding::same(8.0),
+                Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), if is_light { 34 } else { 42 }),
             );
-            // Left border accent line
-            let indicator_rect = Rect::from_min_size(
-                Pos2::new(rect.min.x + 1.5, rect.min.y + 6.0),
-                Vec2::new(3.5, rect.height() - 12.0),
-            );
-            ui.painter().rect_filled(indicator_rect, Rounding::same(2.0), accent);
-        } else if is_hovered {
-            ui.painter().rect_filled(
+            ui.painter().rect_stroke(
                 rect,
-                Rounding::same(7.0),
-                Color32::from_rgba_premultiplied(255, 255, 255, 15),
+                Rounding::same(8.0),
+                Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 150)),
             );
+        } else if is_hovered {
+            let hover_fill = if is_light {
+                Color32::from_rgb(218, 224, 234)
+            } else {
+                Color32::from_rgba_unmultiplied(255, 255, 255, 20)
+            };
+            ui.painter().rect_filled(rect, Rounding::same(8.0), hover_fill);
         }
 
-        // Icon + Label (ensuring exactly one icon is rendered)
-        let text_pos = Pos2::new(rect.min.x + 16.0, rect.center().y - 8.0);
-        let display_color = if is_active {
-            accent
-        } else if is_hovered {
+        let display_color = if is_light {
+            Color32::from_rgb(16, 22, 28)
+        } else if is_active || is_hovered {
             Color32::WHITE
         } else {
             text_color
         };
 
-        let clean_label = label.trim_start_matches(|c: char| !c.is_alphabetic()).trim();
-        let display_text = if !icon.is_empty() {
-            format!("{}  {}", icon, clean_label)
-        } else {
-            label.to_string()
-        };
+        let mut text_x = rect.min.x + 10.0;
+        if let Some(dc) = dot_color {
+            ui.painter().circle_filled(Pos2::new(text_x + 4.0, rect.center().y), 4.0, dc);
+            text_x += 16.0;
+        } else if !icon.is_empty() {
+            ui.painter().text(
+                Pos2::new(text_x, rect.center().y),
+                egui::Align2::LEFT_CENTER,
+                icon,
+                FontId::proportional(12.5),
+                display_color,
+            );
+            text_x += 20.0;
+        }
+
+        let clean_label = label.trim_start_matches(|c: char| !c.is_alphanumeric()).trim();
+        let display = if clean_label.is_empty() { label } else { clean_label };
 
         ui.painter().text(
-            text_pos,
-            egui::Align2::LEFT_TOP,
-            display_text,
-            FontId::proportional(13.5),
+            Pos2::new(text_x, rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            display,
+            FontId::proportional(12.5),
             display_color,
         );
+
+        if let Some(cnt) = badge {
+            ui.painter().text(
+                Pos2::new(rect.max.x - 10.0, rect.center().y),
+                egui::Align2::RIGHT_CENTER,
+                format!("{}", cnt),
+                FontId::proportional(11.0),
+                Color32::from_rgb(140, 150, 170),
+            );
+        }
     }
 
     response

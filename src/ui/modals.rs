@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use eframe::egui::{self, Align2, Color32, Context, FontId, RichText, Rounding, Stroke, Vec2};
 use crate::data::{CustomThemeColors, InventoryItem, SellStrategy};
 use crate::i18n::Strings;
-use crate::inventory::{execute_bulk_sell, BulkSellResult};
+use crate::inventory::{calculate_seller_receives, execute_bulk_sell, BulkSellResult};
 use crate::updater::{UpdateManager, UpdateState};
 
 pub struct ModalManager {
@@ -11,6 +11,7 @@ pub struct ModalManager {
     pub sell_result: Arc<Mutex<Option<BulkSellResult>>>,
     pub sell_status_msg: Arc<Mutex<String>>,
     pub show_quota_warning: bool,
+    pub balance_credited: bool,
 }
 
 impl ModalManager {
@@ -20,6 +21,7 @@ impl ModalManager {
             sell_result: Arc::new(Mutex::new(None)),
             sell_status_msg: Arc::new(Mutex::new(String::new())),
             show_quota_warning: false,
+            balance_credited: false,
         }
     }
 
@@ -30,6 +32,7 @@ impl ModalManager {
         is_open: &mut bool,
         items: &[InventoryItem],
         strategy: SellStrategy,
+        custom_offset: f64,
         refresh_token: Option<String>,
         steam_id: u64,
         proxy_url: Option<String>,
@@ -42,9 +45,15 @@ impl ModalManager {
         }
 
         let total_count = items.len();
-        let total_gross: f64 = items.iter().map(|i| i.market_price.unwrap_or(0.05)).sum();
-        let total_fee: f64 = total_gross * 0.15;
-        let total_net: f64 = (total_gross - total_fee).max(0.0);
+        let total_gross: f64 = items
+            .iter()
+            .map(|i| strategy.compute_price(i.market_price.unwrap_or(0.05), custom_offset))
+            .sum();
+        let total_net: f64 = items
+            .iter()
+            .map(|i| calculate_seller_receives(strategy.compute_price(i.market_price.unwrap_or(0.05), custom_offset)))
+            .sum();
+        let total_fee: f64 = (total_gross - total_net).max(0.0);
 
         let formatted_total = format!("${:.2}", total_gross);
         let confirmation_msg = strings.format_sell_confirm(total_count, &formatted_total);
@@ -166,6 +175,7 @@ impl ModalManager {
                         let accent = Color32::from_rgb(colors.accent[0], colors.accent[1], colors.accent[2]);
                         if ui.button(RichText::new(strings.btn_confirm_sell).font(FontId::proportional(13.0)).color(accent).strong()).clicked() {
                             self.is_selling.store(true, Ordering::Relaxed);
+                            self.balance_credited = false;
                             *self.sell_status_msg.lock().unwrap() = "Authenticating Steam Web Session...".to_string();
                             *self.sell_result.lock().unwrap() = None;
 
@@ -174,6 +184,7 @@ impl ModalManager {
                             let status_clone = self.sell_status_msg.clone();
                             let items_clone = items.to_vec();
                             let strat = strategy;
+                            let offset = custom_offset;
                             let token_clone = refresh_token.clone();
                             let proxy_clone = proxy_url.clone();
                             let id_secret_clone = identity_secret.clone();
@@ -186,6 +197,7 @@ impl ModalManager {
                                 let res = execute_bulk_sell(
                                     &items_clone,
                                     strat,
+                                    offset,
                                     token_clone,
                                     s_id,
                                     proxy_clone,
@@ -221,7 +233,7 @@ impl ModalManager {
         is_open: &mut bool,
         updater: &UpdateManager,
         colors: &CustomThemeColors,
-        _strings: &Strings,
+        strings: &Strings,
     ) {
         if !*is_open {
             return;
@@ -271,16 +283,12 @@ impl ModalManager {
                 ui.add_space(4.0);
 
                 let bullets = [
-                    "• Full Telegram Bot Rewrite (15 Commands, Trilingual EN/TR/RU): Complete command suite (/start, /help, /status, /start_boost, /stop_boost, /restart, /drops, /games, /add_game, /remove_game, /auto_drops, /accounts, /switch, /drop_notify, /qr) with inline action buttons, silent unauthorized chat filtering, and PNG QR code delivery.",
-                    "• Dedicated Library Scrolling: Fixed vertical scrolling bug in Account Owned Games. Expanded scroll area with persistent visible scrollbar for browsing large libraries effortlessly.",
-                    "• One-Click '＋ Add All to Boost': Instant button in the library header to add all owned games into your boost queue at once.",
-                    "• Account Deletion & Config Synchronization: Fixed bug where removing an account failed to delete it from the app and config.json. Immediately syncs deletions to disk and halts active workers.",
-                    "• Real-Time Steam Market Price Engine: Fixed flat $0.20 price bug. Inventory items query live market prices directly from Steam Community Market with rarity-based fallbacks.",
-                    "• Account Owned Games Scanner: Multi-source badge scraper, inventory-based game discovery, and instant background refresh.",
-                    "• Accurate Bulk Market Selling: Live market valuations for gross, net, and Steam fees.",
-                    "• Single Sidebar Icons: Clean navigation tab icons without duplication across all pages.",
-                    "• Dynamic Title Auto-Refresh: Automatically updates hours, game counts, and clock times every 10 minutes in Steam non-Steam game titles.",
-                    "• Steam Mobile QR Code Login: Instant session authorization and DPAPI encryption.",
+                    "• SupBooster v1.3.0 Major Update — Prism UI & Liquid Glass: New ultra-transparent Liquid Glass theme with specular edge refraction, customizable Glass Opacity slider, fixed RGB/RGBA color pickers, and guaranteed high-contrast black text & gray hover states in Light theme.",
+                    "• Trade Consolidate Fix & Mobile 2FA Alert: Fixed Steam Trade Offer API sessionid/preflight validation, added real HTTP/Steam error diagnostics, per-item selection checkboxes with Select All / Deselect All, and Mobile Confirmation notification banner.",
+                    "• Account Balance & Desktop CSV Export: Live per-account inventory valuations, total cards earned, net/gross earnings, boosted hours, and direct Desktop CSV export.",
+                    "• Market Pricing Strategy Fix: Undercut (-$0.01), Instant Sell, Market / Median Price, and Custom Offset now compute exact prices across previews, confirmation modals, and Steam Market listings.",
+                    "• Sidebar, Topbar & Steam CM Ping Monitor: Collapsible ACCOUNTS list opening specific accounts, bottom-aligned Changelogs & Active Boost card, System Tray event-handler fix, and live Steam CM latency indicator.",
+                    "• Dedicated Logs Tab, Instant Auto-Save & Bug-Free UI Zoom: Bottom-aligned live logs, immediate config.json persistence, smooth UI scale slider, and full EN/TR/RU localization + Telegram /lang & /addaccount.",
                 ];
 
                 for b in &bullets {
@@ -299,19 +307,19 @@ impl ModalManager {
                         .stroke(Stroke::new(1.0_f32, Color32::from_rgb(255, 175, 50)))
                         .inner_margin(egui::Margin::same(10.0))
                         .show(ui, |ui| {
-                            ui.label(RichText::new("⚠️ Data Usage & Download Confirmation").font(FontId::proportional(12.5)).color(Color32::from_rgb(255, 185, 60)).strong());
+                            ui.label(RichText::new(strings.quota_warning_title).font(FontId::proportional(12.5)).color(Color32::from_rgb(255, 185, 60)).strong());
                             ui.add_space(3.0);
-                            ui.label(RichText::new("Downloading this update (~14 MB) will consume network data. Additional carrier charges may apply if you are on a metered or mobile data plan. Do you want to proceed?").font(FontId::proportional(11.5)).color(Color32::WHITE));
+                            ui.label(RichText::new(strings.quota_warning_msg).font(FontId::proportional(11.5)).color(Color32::WHITE));
                             ui.add_space(8.0);
 
                             ui.horizontal(|ui| {
-                                if ui.button(RichText::new("✓ Confirm & Download").font(FontId::proportional(12.0)).color(Color32::WHITE).strong()).clicked() {
+                                if ui.button(RichText::new(strings.btn_proceed_download).font(FontId::proportional(12.0)).color(Color32::WHITE).strong()).clicked() {
                                     self.show_quota_warning = false;
                                     if let UpdateState::UpdateAvailable { ref download_url, asset_size, .. } = state {
                                         crate::updater::start_download_and_update(download_url.clone(), asset_size, updater.state.clone());
                                     }
                                 }
-                                if ui.button(RichText::new("Cancel").font(FontId::proportional(11.5))).clicked() {
+                                if ui.button(RichText::new(strings.btn_cancel).font(FontId::proportional(11.5))).clicked() {
                                     self.show_quota_warning = false;
                                 }
                             });

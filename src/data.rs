@@ -80,15 +80,28 @@ pub enum ThemeMode {
     Dark,
     Light,
     System,
-    #[serde(alias = "LiquidGlass")]
     Transparent,
+    LiquidGlass,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum SellStrategy {
     #[default]
-    QuickSell, // En düşük alış / sipariş fiyatından hızlı sat
-    Undercut,  // Mevcut en düşük listeleme - 0.01
+    Undercut,    // En düşük listelemenin altına kır (-0.01)
+    QuickSell,   // En düşük alış siparişi / Instant Sell
+    MarketPrice, // Normal / Medyan Pazar Fiyatı
+    CustomOffset,// Özel / Manuel Ofset
+}
+
+impl SellStrategy {
+    pub fn compute_price(self, market_price: f64, custom_offset: f64) -> f64 {
+        match self {
+            SellStrategy::Undercut => (market_price - 0.01).max(0.03),
+            SellStrategy::QuickSell => (market_price * 0.92).max(0.03),
+            SellStrategy::MarketPrice => market_price.max(0.03),
+            SellStrategy::CustomOffset => (market_price + custom_offset).max(0.03),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -262,6 +275,14 @@ pub struct Account {
     pub avatar_url: Option<String>,
     #[serde(default)]
     pub persona_name: Option<String>,
+    #[serde(default)]
+    pub total_cards_earned: u64,
+    #[serde(default)]
+    pub total_gross_earned: f64,
+    #[serde(default)]
+    pub total_net_earned: f64,
+    #[serde(default)]
+    pub total_items_sold: u64,
 }
 
 impl Account {
@@ -284,6 +305,10 @@ impl Account {
             steam_id: 0,
             avatar_url: None,
             persona_name: None,
+            total_cards_earned: 0,
+            total_gross_earned: 0.0,
+            total_net_earned: 0.0,
+            total_items_sold: 0,
         }
     }
 }
@@ -366,6 +391,8 @@ pub struct AppSettings {
     pub auto_switch_drops: bool,
     #[serde(default)]
     pub sell_strategy: SellStrategy,
+    #[serde(default)]
+    pub sell_custom_offset: f64,
     #[serde(default)]
     pub telegram_language: Language,
 }
@@ -453,7 +480,8 @@ impl Default for AppSettings {
             theme_mode: ThemeMode::Dark,
             custom_colors: CustomThemeColors::default(),
             auto_switch_drops: true,
-            sell_strategy: SellStrategy::QuickSell,
+            sell_strategy: SellStrategy::Undercut,
+            sell_custom_offset: -0.02,
             telegram_language: Language::English,
         }
     }

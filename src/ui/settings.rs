@@ -8,6 +8,7 @@ pub struct SettingsView {
     pub autostart_reg: bool,
     pub autostart_minimized: bool,
     pub autostart_task_service: bool,
+    pub pending_ui_scale: Option<f32>,
 }
 
 impl SettingsView {
@@ -16,6 +17,7 @@ impl SettingsView {
             autostart_reg: autostart::is_registry_autostart_enabled(),
             autostart_minimized: false,
             autostart_task_service: autostart::is_task_scheduler_enabled(),
+            pending_ui_scale: None,
         }
     }
 
@@ -38,7 +40,7 @@ impl SettingsView {
 
                 // Theme Mode Selector
                 ui.label(RichText::new(strings.pick("Theme Mode:", "Tema Modu:", "Режим темы:")).font(FontId::proportional(12.0)));
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     if ui.selectable_label(settings.theme_mode == ThemeMode::Dark, strings.theme_dark).clicked() {
                         settings.theme_mode = ThemeMode::Dark;
                         let lum = (settings.custom_colors.text[0] as u32 * 299 + settings.custom_colors.text[1] as u32 * 587 + settings.custom_colors.text[2] as u32 * 114) / 1000;
@@ -49,9 +51,9 @@ impl SettingsView {
                     }
                     if ui.selectable_label(settings.theme_mode == ThemeMode::Light, strings.theme_light).clicked() {
                         settings.theme_mode = ThemeMode::Light;
-                        let lum = (settings.custom_colors.text[0] as u32 * 299 + settings.custom_colors.text[1] as u32 * 587 + settings.custom_colors.text[2] as u32 * 114) / 1000;
-                        if lum > 140 {
-                            settings.custom_colors.text = [25, 30, 36];
+                        settings.custom_colors.text = [16, 20, 26];
+                        let lum = (settings.custom_colors.surface[0] as u32 * 299 + settings.custom_colors.surface[1] as u32 * 587 + settings.custom_colors.surface[2] as u32 * 114) / 1000;
+                        if lum < 160 {
                             settings.custom_colors.surface = [245, 247, 250];
                         }
                     }
@@ -66,15 +68,23 @@ impl SettingsView {
                             settings.custom_colors.surface = [22, 26, 36];
                         }
                     }
+                    if ui.selectable_label(settings.theme_mode == ThemeMode::LiquidGlass, strings.theme_liquid_glass).clicked() {
+                        settings.theme_mode = ThemeMode::LiquidGlass;
+                        let lum = (settings.custom_colors.text[0] as u32 * 299 + settings.custom_colors.text[1] as u32 * 587 + settings.custom_colors.text[2] as u32 * 114) / 1000;
+                        if lum < 70 {
+                            settings.custom_colors.text = [225, 235, 245];
+                            settings.custom_colors.surface = [18, 22, 32];
+                        }
+                    }
                 });
 
-                if settings.theme_mode == ThemeMode::Transparent {
+                if settings.theme_mode == ThemeMode::Transparent || settings.theme_mode == ThemeMode::LiquidGlass {
                     ui.add_space(4.0);
                     ui.label(
                         RichText::new(strings.pick(
-                            "✨ Transparent mode showcases your desktop background with an elegant Acrylic / Mica blur aesthetic.",
-                            "✨ Şeffaf mod masaüstü arka planınızı Acrylic / Mica bulanıklık efektiyle yansıtır.",
-                            "✨ Прозрачный режим отображает фон рабочего стола с эффектом Acrylic / Mica.",
+                            "💎 Liquid Glass / Acrylic showcases your desktop wallpaper with frosted refraction edges.",
+                            "💎 Liquid Glass / Acrylic masaüstü arka planınızı ışık kıran buzlu cam kenarlarıyla yansıtır.",
+                            "💎 Liquid Glass / Acrylic отражает рабочий стол с преломляющими краями стекла.",
                         ))
                             .font(FontId::proportional(11.0))
                             .color(Color32::from_rgb(100, 190, 240)),
@@ -85,47 +95,76 @@ impl SettingsView {
                 ui.separator();
                 ui.add_space(6.0);
 
-                // Color Customization (Color Pickers)
+                // Color Customization (Color Pickers — free Alpha on Surface + pure RGB on Text/Accent)
                 ui.label(RichText::new(strings.pick("🎨 Color Customization:", "🎨 Renk Özelleştirme:", "🎨 Настройка цветов:")).font(FontId::proportional(13.0)).strong());
                 ui.add_space(4.0);
 
                 ui.columns(3, |cols| {
-                    // Window Surface / Tint Color
+                    // Window Surface / Tint Color + real editable Alpha
                     cols[0].vertical(|ui| {
                         ui.label(RichText::new(strings.label_surface_color).font(FontId::proportional(11.5)));
-                        let mut srgba = Color32::from_rgb(settings.custom_colors.surface[0], settings.custom_colors.surface[1], settings.custom_colors.surface[2]);
+                        let mut srgba = Color32::from_rgba_unmultiplied(
+                            settings.custom_colors.surface[0],
+                            settings.custom_colors.surface[1],
+                            settings.custom_colors.surface[2],
+                            settings.custom_colors.glass_alpha,
+                        );
                         if ui.color_edit_button_srgba(&mut srgba).changed() {
                             settings.custom_colors.surface = [srgba.r(), srgba.g(), srgba.b()];
+                            settings.custom_colors.glass_alpha = srgba.a();
                         }
                     });
 
-                    // Text Color
+                    // Text Color (RGB only — no broken alpha snap)
                     cols[1].vertical(|ui| {
                         ui.label(RichText::new(strings.label_text_color).font(FontId::proportional(11.5)));
-                        let mut srgba = Color32::from_rgb(settings.custom_colors.text[0], settings.custom_colors.text[1], settings.custom_colors.text[2]);
-                        if ui.color_edit_button_srgba(&mut srgba).changed() {
-                            settings.custom_colors.text = [srgba.r(), srgba.g(), srgba.b()];
+                        let mut rgb = [
+                            settings.custom_colors.text[0] as f32 / 255.0,
+                            settings.custom_colors.text[1] as f32 / 255.0,
+                            settings.custom_colors.text[2] as f32 / 255.0,
+                        ];
+                        if ui.color_edit_button_rgb(&mut rgb).changed() {
+                            settings.custom_colors.text = [
+                                (rgb[0] * 255.0).round() as u8,
+                                (rgb[1] * 255.0).round() as u8,
+                                (rgb[2] * 255.0).round() as u8,
+                            ];
                         }
                     });
 
-                    // Accent Color
+                    // Accent Color (RGB only — no broken alpha snap)
                     cols[2].vertical(|ui| {
                         ui.label(RichText::new(strings.label_accent_color).font(FontId::proportional(11.5)));
-                        let mut srgba = Color32::from_rgb(settings.custom_colors.accent[0], settings.custom_colors.accent[1], settings.custom_colors.accent[2]);
-                        if ui.color_edit_button_srgba(&mut srgba).changed() {
-                            settings.custom_colors.accent = [srgba.r(), srgba.g(), srgba.b()];
+                        let mut rgb = [
+                            settings.custom_colors.accent[0] as f32 / 255.0,
+                            settings.custom_colors.accent[1] as f32 / 255.0,
+                            settings.custom_colors.accent[2] as f32 / 255.0,
+                        ];
+                        if ui.color_edit_button_rgb(&mut rgb).changed() {
+                            settings.custom_colors.accent = [
+                                (rgb[0] * 255.0).round() as u8,
+                                (rgb[1] * 255.0).round() as u8,
+                                (rgb[2] * 255.0).round() as u8,
+                            ];
                         }
                     });
                 });
 
                 ui.add_space(6.0);
-                if ui.button(RichText::new(strings.btn_reset_theme_colors).font(FontId::proportional(11.5))).clicked() {
-                    settings.custom_colors = if settings.theme_mode == ThemeMode::Light {
-                        CustomThemeColors::light_default()
-                    } else {
-                        CustomThemeColors::dark_default()
-                    };
-                }
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(strings.pick("Glass Opacity:", "Cam Opaklığı / Şeffaflık:", "Прозрачность стекла:")).font(FontId::proportional(11.5)));
+                    let mut alpha_u8 = settings.custom_colors.glass_alpha;
+                    if ui.add(egui::Slider::new(&mut alpha_u8, 10..=255)).changed() {
+                        settings.custom_colors.glass_alpha = alpha_u8;
+                    }
+                    if ui.button(RichText::new(strings.btn_reset_theme_colors).font(FontId::proportional(11.5))).clicked() {
+                        settings.custom_colors = if settings.theme_mode == ThemeMode::Light {
+                            CustomThemeColors::light_default()
+                        } else {
+                            CustomThemeColors::dark_default()
+                        };
+                    }
+                });
 
                 ui.add_space(8.0);
                 ui.separator();
@@ -141,12 +180,20 @@ impl SettingsView {
 
                 ui.add_space(6.0);
 
-                // UI Zoom / Scale slider
+                // UI Zoom / Scale slider (committed only on release to avoid coordinate oscillation while dragging)
                 ui.label(RichText::new(strings.label_ui_scale).font(FontId::proportional(12.0)));
+                let mut draft_scale = self.pending_ui_scale.unwrap_or(settings.ui_scale);
                 ui.horizontal(|ui| {
-                    ui.add(egui::Slider::new(&mut settings.ui_scale, 0.8..=1.5).step_by(0.05).text("x"));
+                    let slider_resp = ui.add(egui::Slider::new(&mut draft_scale, 0.8..=1.5).step_by(0.05).text("x"));
+                    if slider_resp.dragged() {
+                        self.pending_ui_scale = Some(draft_scale);
+                    } else if self.pending_ui_scale.is_some() || slider_resp.changed() {
+                        settings.ui_scale = draft_scale;
+                        self.pending_ui_scale = None;
+                    }
                     if ui.button(strings.zoom_reset_btn).clicked() {
                         settings.ui_scale = 1.0;
+                        self.pending_ui_scale = None;
                     }
                 });
             });
@@ -196,16 +243,10 @@ impl SettingsView {
 
             ui.add_space(8.0);
 
-            // ─── 3. SECURITY & REAL-GAME DETECTION ───
+            // ─── 3. MISC (Smart Detection & Card Tracking) ───
             ThemeEngine::card_frame(theme_mode, &colors).show(ui, |ui| {
                 ui.label(RichText::new(strings.sec_security).font(FontId::proportional(14.5)).strong());
                 ui.add_space(6.0);
-
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(strings.pick("🔒 Hardware Encryption:", "🔒 Donanım Şifrelemesi:", "🔒 Аппаратное шифрование:")).font(FontId::proportional(12.0)));
-                    ui.label(RichText::new(strings.pick("Windows DPAPI Always Enforced", "Windows DPAPI Her Zaman Aktif", "Windows DPAPI всегда активен")).font(FontId::proportional(11.5)).color(Color32::from_rgb(90, 220, 130)).strong());
-                });
-                ui.add_space(4.0);
 
                 ui.checkbox(&mut settings.auto_pause_game, strings.opt_autopause_game);
                 ui.add_space(4.0);

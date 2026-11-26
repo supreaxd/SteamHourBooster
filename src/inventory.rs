@@ -630,12 +630,15 @@ pub async fn get_steam_web_session(
         .map_err(|e| format!("Failed to set token for steamcommunity: {}", e))?;
 
     let mut steam_login_secure = None;
+    let mut final_session_id = session_id;
     for cookie_header in set_resp.headers().get_all(reqwest::header::SET_COOKIE) {
         if let Ok(cookie_str) = cookie_header.to_str() {
-            if cookie_str.starts_with("steamLoginSecure=") {
-                if let Some(val) = cookie_str.split(';').next() {
-                    if let Some(token_val) = val.strip_prefix("steamLoginSecure=") {
-                        steam_login_secure = Some(token_val.to_string());
+            if let Some(val) = cookie_str.split(';').next() {
+                if let Some(token_val) = val.strip_prefix("steamLoginSecure=") {
+                    steam_login_secure = Some(token_val.to_string());
+                } else if let Some(sid_val) = val.strip_prefix("sessionid=") {
+                    if !sid_val.trim().is_empty() {
+                        final_session_id = sid_val.trim().to_string();
                     }
                 }
             }
@@ -643,13 +646,14 @@ pub async fn get_steam_web_session(
     }
 
     let login_secure = steam_login_secure.ok_or_else(|| "steamLoginSecure cookie not received from Steam".to_string())?;
-    Ok((session_id, login_secure))
+    Ok((final_session_id, login_secure))
 }
 
 /// Execute bulk sell operation with strategy and real Steam Market listing
 pub async fn execute_bulk_sell(
     items: &[InventoryItem],
     strategy: SellStrategy,
+    custom_offset: f64,
     refresh_token: Option<String>,
     steam_id: u64,
     proxy_url: Option<String>,
@@ -707,10 +711,8 @@ pub async fn execute_bulk_sell(
             continue;
         }
 
-        let gross = match strategy {
-            SellStrategy::QuickSell => item.market_price.unwrap_or(0.05),
-            SellStrategy::Undercut => (item.market_price.unwrap_or(0.05) - 0.01).max(0.03),
-        };
+        let base_price = item.market_price.unwrap_or(0.05);
+        let gross = strategy.compute_price(base_price, custom_offset);
         let net = calculate_seller_receives(gross);
         let seller_cents = ((net * 100.0).round().max(1.0)) as u64;
 
@@ -1070,4 +1072,322 @@ async fn fetch_account_owned_games_internal(
     result.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     store_owned_games_cache(steam_id, result.clone());
     result
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TradeOfferStatus {
+    Sent,
+    PendingConfirmation,
+    Error,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConsolidateTradeResult {
+    pub source_username: String,
+    pub target_username: String,
+    pub item_count: usize,
+    pub trade_offer_id: Option<String>,
+    pub status: TradeOfferStatus,
+    pub message: String,
+}
+
+/// Sends a Steam Trade Offer from a source alt account to a target main account
+pub async fn execute_consolidate_trade(
+    source_username: String,
+    target_username: String,
+    target_steam_id: u64,
+    trade_url: Option<String>,
+    items: Vec<InventoryItem>,
+    source_refresh_token: Option<String>,
+    proxy_url: Option<String>,
+) -> ConsolidateTradeResult {
+    let item_count = items.len();
+    if item_count == 0 {
+        return ConsolidateTradeResult {
+            source_username,
+            target_username,
+            item_count: 0,
+            trade_offer_id: None,
+            status: TradeOfferStatus::Error,
+            message: "No tradable items selected.".to_string(),
+        };
+    }
+
+    let token = match source_refresh_token.filter(|t| !t.trim().is_empty()) {
+        Some(t) => t,
+        None => {
+            return ConsolidateTradeResult {
+                source_username,
+                target_username,
+                item_count,
+                trade_offer_id: None,
+                status: TradeOfferStatus::Error,
+                message: "Source account has no saved Steam session token (QR login required).".to_string(),
+            };
+        }
+    };
+
+    let (session_id, steam_login_secure) = match get_steam_web_session(&token, proxy_url.as_deref()).await {
+        Ok(s) => s,
+        Err(e) => {
+            return ConsolidateTradeResult {
+                source_username,
+                target_username,
+                item_count,
+                trade_offer_id: None,
+                status: TradeOfferStatus::Error,
+                message: format!("Steam Web Auth failed: {}", e),
+            };
+        }
+    };
+
+    // Parse partner & token from trade_url if provided, else use target_steam_id
+    let mut trade_token = String::new();
+    let mut partner_account_id: u64 = if target_steam_id > 76561197960265728 {
+        target_steam_id - 76561197960265728
+    } else {
+        target_steam_id
+    };
+
+    if let Some(ref url) = trade_url {
+        if let Some(q_pos) = url.find('?') {
+            for pair in url[q_pos + 1..].split('&') {
+                if let Some((k, v)) = pair.split_once('=') {
+                    if k == "partner" {
+                        if let Ok(p) = v.parse::<u64>() {
+                            partner_account_id = p;
+                        }
+                    } else if k == "token" {
+                        trade_token = v.to_string();
+                    }
+                }
+            }
+        }
+    }
+
+    if partner_account_id == 0 {
+        return ConsolidateTradeResult {
+            source_username,
+            target_username,
+            item_count,
+            trade_offer_id: None,
+            status: TradeOfferStatus::Error,
+            message: "Target SteamID or Trade URL is invalid.".to_string(),
+        };
+    }
+
+    let assets_json: Vec<serde_json::Value> = items
+        .iter()
+        .map(|it| {
+            let ctx_id = if it.app_id == 753 { "6" } else { "2" };
+            serde_json::json!({
+                "appid": it.app_id,
+                "contextid": ctx_id,
+                "amount": it.amount.max(1),
+                "assetid": it.asset_id,
+            })
+        })
+        .collect();
+
+    let json_tradeoffer = serde_json::json!({
+        "newversion": true,
+        "version": 4,
+        "me": {
+            "assets": assets_json,
+            "currency": [],
+            "ready": false
+        },
+        "them": {
+            "assets": [],
+            "currency": [],
+            "ready": false
+        }
+    })
+    .to_string();
+
+    let mut params = serde_json::json!({});
+    if !trade_token.is_empty() {
+        params["trade_offer_access_token"] = serde_json::json!(trade_token);
+    }
+
+    let partner_steamid64 = partner_account_id + 76561197960265728;
+    let referer = if let Some(ref url) = trade_url {
+        if !url.trim().is_empty() {
+            url.clone()
+        } else {
+            format!("https://steamcommunity.com/tradeoffer/new/?partner={}", partner_account_id)
+        }
+    } else {
+        format!("https://steamcommunity.com/tradeoffer/new/?partner={}", partner_account_id)
+    };
+
+    let mut active_session_id = session_id;
+    let mut cookie_header = format!("sessionid={}; steamLoginSecure={};", active_session_id, steam_login_secure);
+    let client = build_http_client(proxy_url);
+
+    // Preflight GET on tradeoffer page so Steam initializes/validates sessionid & surfaces any block reason
+    if let Ok(pre_resp) = client
+        .get(&referer)
+        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+        .header("Cookie", &cookie_header)
+        .send()
+        .await
+    {
+        for cookie_header_val in pre_resp.headers().get_all(reqwest::header::SET_COOKIE) {
+            if let Ok(cs) = cookie_header_val.to_str() {
+                if let Some(kv) = cs.split(';').next() {
+                    if let Some(new_sid) = kv.strip_prefix("sessionid=") {
+                        if !new_sid.trim().is_empty() && new_sid.trim() != "deleted" {
+                            active_session_id = new_sid.trim().to_string();
+                            cookie_header = format!("sessionid={}; steamLoginSecure={};", active_session_id, steam_login_secure);
+                        }
+                    }
+                }
+            }
+        }
+        if let Ok(html) = pre_resp.text().await {
+            if html.contains("g_steamID = false") || html.contains("steamcommunity.com/login/home") {
+                return ConsolidateTradeResult {
+                    source_username,
+                    target_username,
+                    item_count,
+                    trade_offer_id: None,
+                    status: TradeOfferStatus::Error,
+                    message: "Steam web session is not logged in. Please re-login via QR code for this account.".to_string(),
+                };
+            }
+            if let Some(err_idx) = html.find("id=\"error_msg\"") {
+                let slice = &html[err_idx..];
+                if let Some(gt) = slice.find('>') {
+                    if let Some(end) = slice[gt + 1..].find("</div>") {
+                        let raw = &slice[gt + 1..gt + 1 + end];
+                        let cleaned = strip_html_tags(raw);
+                        if !cleaned.is_empty() {
+                            return ConsolidateTradeResult {
+                                source_username,
+                                target_username,
+                                item_count,
+                                trade_offer_id: None,
+                                status: TradeOfferStatus::Error,
+                                message: format!("Steam Trade Error: {}", cleaned),
+                            };
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let form_body = format!(
+        "sessionid={}&serverid=1&partner={}&tradeoffermessage={}&json_tradeoffer={}&captcha=&trade_offer_create_params={}",
+        crate::data::urlencoding_encode(&active_session_id),
+        partner_steamid64,
+        crate::data::urlencoding_encode("SupBooster Consolidate Trade"),
+        crate::data::urlencoding_encode(&json_tradeoffer),
+        crate::data::urlencoding_encode(&params.to_string()),
+    );
+
+    let resp = client
+        .post("https://steamcommunity.com/tradeoffer/new/send")
+        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+        .header("Accept", "application/json, text/javascript, */*; q=0.01")
+        .header("X-Requested-With", "XMLHttpRequest")
+        .header("Referer", &referer)
+        .header("Origin", "https://steamcommunity.com")
+        .header("Cookie", &cookie_header)
+        .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+        .body(form_body)
+        .send()
+        .await;
+
+    match resp {
+        Ok(r) => {
+            let status_code = r.status().as_u16();
+            let body_text = r.text().await.unwrap_or_default();
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body_text) {
+                if let Some(offer_id) = json.get("tradeofferid").and_then(|v| v.as_str()) {
+                    let needs_conf = json.get("needs_mobile_confirmation").and_then(|v| v.as_bool()).unwrap_or(false)
+                        || json.get("needs_email_confirmation").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let status = if needs_conf {
+                        TradeOfferStatus::PendingConfirmation
+                    } else {
+                        TradeOfferStatus::Sent
+                    };
+                    logger::log_success(&format!(
+                        "📦 [Consolidate] Trade Offer #{} created ({} -> {}, {} items)",
+                        offer_id, source_username, target_username, item_count
+                    ));
+                    ConsolidateTradeResult {
+                        source_username,
+                        target_username,
+                        item_count,
+                        trade_offer_id: Some(offer_id.to_string()),
+                        status,
+                        message: if needs_conf {
+                            format!("Offer #{} created — Mobile/Email confirmation required.", offer_id)
+                        } else {
+                            format!("Offer #{} sent successfully!", offer_id)
+                        },
+                    }
+                } else {
+                    let err_msg = json
+                        .get("strError")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Trade offer rejected by Steam")
+                        .to_string();
+                    logger::log_error(&format!("📦 [Consolidate] Failed ({} -> {}): {}", source_username, target_username, err_msg));
+                    ConsolidateTradeResult {
+                        source_username,
+                        target_username,
+                        item_count,
+                        trade_offer_id: None,
+                        status: TradeOfferStatus::Error,
+                        message: err_msg,
+                    }
+                }
+            } else {
+                let cleaned = strip_html_tags(&body_text);
+                let snippet: String = cleaned.chars().take(160).collect();
+                let detail = if snippet.is_empty() {
+                    format!("HTTP {} (empty response — check if accounts are Steam friends or paste target Trade URL)", status_code)
+                } else {
+                    format!("HTTP {}: {}", status_code, snippet)
+                };
+                logger::log_error(&format!("📦 [Consolidate] Non-JSON ({} -> {}): {}", source_username, target_username, detail));
+                ConsolidateTradeResult {
+                    source_username,
+                    target_username,
+                    item_count,
+                    trade_offer_id: None,
+                    status: TradeOfferStatus::Error,
+                    message: detail,
+                }
+            }
+        }
+        Err(e) => ConsolidateTradeResult {
+            source_username,
+            target_username,
+            item_count,
+            trade_offer_id: None,
+            status: TradeOfferStatus::Error,
+            message: format!("Network error: {}", e),
+        },
+    }
+}
+
+fn strip_html_tags(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut in_tag = false;
+    for ch in input.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => {
+                in_tag = false;
+                out.push(' ');
+            }
+            _ if !in_tag => out.push(ch),
+            _ => {}
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
 }

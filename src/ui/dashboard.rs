@@ -3,37 +3,56 @@ use eframe::egui::{self, Color32, FontId, RichText, Rounding, ScrollArea, Stroke
 use crate::data::{Account, AccountStatus, CustomThemeColors, ThemeMode};
 use crate::i18n::Strings;
 use crate::inventory::{get_account_inventory, get_cached_active_drops};
+use crate::ui::components::{muted_text, prism_filter_pill, prism_progress_bar};
 use crate::ui::theme::ThemeEngine;
 
-pub struct DashboardView;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DashFilter {
+    All,
+    Boosting,
+    Stopped,
+}
+
+pub struct DashboardView {
+    filter: DashFilter,
+}
 
 impl DashboardView {
+    pub fn new() -> Self {
+        Self { filter: DashFilter::All }
+    }
+
     pub fn draw(
+        &mut self,
         ui: &mut Ui,
         accounts: &[Arc<Mutex<Account>>],
+        global_search: &str,
         colors: &CustomThemeColors,
         theme_mode: ThemeMode,
         strings: &Strings,
-    ) {
+    ) -> Option<u64> {
+        let mut edit_account_id: Option<u64> = None;
         let accent = Color32::from_rgb(colors.accent[0], colors.accent[1], colors.accent[2]);
+        let muted = muted_text(theme_mode);
 
-        // Aggregate statistics
-        let mut active_accounts = 0;
-        let mut total_boosting_games = 0;
+        let mut active_accounts = 0usize;
+        let mut stopped_accounts = 0usize;
+        let mut total_boosting_games = 0usize;
         let mut total_cards_left: u32 = 0;
-        let mut total_items = 0;
+        let mut total_items = 0usize;
+        let mut total_hours = 0.0_f64;
 
         for arc in accounts {
             let a = arc.lock().unwrap();
-            let is_boosting = matches!(a.status, AccountStatus::Boosting);
-            if is_boosting {
+            total_hours += a.hours_boosted;
+            if matches!(a.status, AccountStatus::Boosting) {
                 active_accounts += 1;
                 total_boosting_games += a.games.len();
+            } else {
+                stopped_accounts += 1;
             }
-
             if a.steam_id != 0 {
-                let drops = get_cached_active_drops(a.steam_id);
-                for d in drops {
+                for d in get_cached_active_drops(a.steam_id) {
                     total_cards_left += d.remaining_cards;
                 }
                 if let Some(inv) = get_account_inventory(a.steam_id) {
@@ -42,63 +61,69 @@ impl DashboardView {
             }
         }
 
+        // ─── PRISM HEADER + STATUS FILTER PILLS ───
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                ui.label(RichText::new(strings.tab_dashboard).font(FontId::proportional(19.0)).strong());
+                ui.label(
+                    RichText::new(format!(
+                        "{} {} · {} {} · {:.1}h · {} 🃏",
+                        accounts.len(),
+                        strings.pick("accounts", "hesap", "аккаунтов"),
+                        total_boosting_games,
+                        strings.games_count_unit,
+                        total_hours,
+                        total_cards_left
+                    ))
+                    .font(FontId::proportional(11.5))
+                    .color(muted),
+                );
+            });
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if prism_filter_pill(ui, strings.status_idle, Some(stopped_accounts), self.filter == DashFilter::Stopped, accent, theme_mode).clicked() {
+                    self.filter = DashFilter::Stopped;
+                }
+                if prism_filter_pill(ui, strings.status_boosting, Some(active_accounts), self.filter == DashFilter::Boosting, accent, theme_mode).clicked() {
+                    self.filter = DashFilter::Boosting;
+                }
+                if prism_filter_pill(ui, strings.pick("All", "Tümü", "Все"), Some(accounts.len()), self.filter == DashFilter::All, accent, theme_mode).clicked() {
+                    self.filter = DashFilter::All;
+                }
+            });
+        });
+
+        ui.add_space(10.0);
+
         ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            // ─── TOP 4 STAT SUMMARY CARDS ───
-            ui.add_space(4.0);
+            // ─── TOP 4 COMPACT STAT CARDS ───
             ui.columns(4, |cols| {
-                // Stat 1: Active Accounts
                 ThemeEngine::card_frame(theme_mode, colors).show(&mut cols[0], |ui| {
-                    ui.vertical(|ui| {
-                        ui.label(RichText::new(strings.pick("👤 Active Accounts", "👤 Aktif Hesaplar", "👤 Активные аккаунты")).font(FontId::proportional(11.0)).color(Color32::from_rgb(140, 160, 180)));
-                        ui.add_space(2.0);
-                        ui.label(RichText::new(format!("{}", active_accounts)).font(FontId::proportional(22.0)).color(Color32::from_rgb(90, 210, 120)));
-                        ui.label(RichText::new(format!("{} {}", accounts.len(), strings.pick("total accounts", "toplam hesap", "всего аккаунтов"))).font(FontId::proportional(10.5)).color(Color32::from_rgb(110, 130, 150)));
-                    });
+                    ui.label(RichText::new(strings.pick("👤 Active Accounts", "👤 Aktif Hesaplar", "👤 Активные")).font(FontId::proportional(11.0)).color(muted));
+                    ui.label(RichText::new(format!("{}", active_accounts)).font(FontId::proportional(20.0)).color(Color32::from_rgb(80, 225, 130)).strong());
                 });
-
-                // Stat 2: Boosting Games
                 ThemeEngine::card_frame(theme_mode, colors).show(&mut cols[1], |ui| {
-                    ui.vertical(|ui| {
-                        ui.label(RichText::new(strings.pick("🎮 Boosting Games", "🎮 Kasılan Oyunlar", "🎮 Бустятся игры")).font(FontId::proportional(11.0)).color(Color32::from_rgb(140, 160, 180)));
-                        ui.add_space(2.0);
-                        ui.label(RichText::new(format!("{}", total_boosting_games)).font(FontId::proportional(22.0)).color(accent));
-                        ui.label(RichText::new(strings.pick("Simultaneously active", "Eşzamanlı aktif", "Одновременно активно")).font(FontId::proportional(10.5)).color(Color32::from_rgb(110, 130, 150)));
-                    });
+                    ui.label(RichText::new(strings.pick("🎮 Parallel Games", "🎮 Paralel Oyunlar", "🎮 Параллельно игр")).font(FontId::proportional(11.0)).color(muted));
+                    ui.label(RichText::new(format!("{}", total_boosting_games)).font(FontId::proportional(20.0)).color(accent).strong());
                 });
-
-                // Stat 3: Remaining Card Drops
                 ThemeEngine::card_frame(theme_mode, colors).show(&mut cols[2], |ui| {
-                    ui.vertical(|ui| {
-                        ui.label(RichText::new(strings.pick("🃏 Remaining Card Drops", "🃏 Kalan Kart Hakları", "🃏 Осталось карточек")).font(FontId::proportional(11.0)).color(Color32::from_rgb(140, 160, 180)));
-                        ui.add_space(2.0);
-                        ui.label(RichText::new(format!("{}", total_cards_left)).font(FontId::proportional(22.0)).color(Color32::from_rgb(255, 185, 60)));
-                        ui.label(RichText::new(strings.pick("Eligible drops left", "Düşürülebilir kart", "Доступно дропов")).font(FontId::proportional(10.5)).color(Color32::from_rgb(110, 130, 150)));
-                    });
+                    ui.label(RichText::new(strings.pick("🃏 Remaining Drops", "🃏 Kalan Kart Hakkı", "🃏 Осталось дропов")).font(FontId::proportional(11.0)).color(muted));
+                    ui.label(RichText::new(format!("{}", total_cards_left)).font(FontId::proportional(20.0)).color(Color32::from_rgb(255, 185, 60)).strong());
                 });
-
-                // Stat 4: Inventory Items / Value
                 ThemeEngine::card_frame(theme_mode, colors).show(&mut cols[3], |ui| {
-                    ui.vertical(|ui| {
-                        ui.label(RichText::new(strings.pick("🎒 Inventory Items", "🎒 Envanter Eşyaları", "🎒 Предметы инвентаря")).font(FontId::proportional(11.0)).color(Color32::from_rgb(140, 160, 180)));
-                        ui.add_space(2.0);
-                        ui.label(RichText::new(format!("{}", total_items)).font(FontId::proportional(22.0)).color(Color32::from_rgb(180, 140, 240)));
-                        ui.label(RichText::new(strings.pick("Cards & Items", "Kartlar & Eşyalar", "Карты и предметы")).font(FontId::proportional(10.5)).color(Color32::from_rgb(110, 130, 150)));
-                    });
+                    ui.label(RichText::new(strings.pick("🎒 Inventory Items", "🎒 Envanter Eşyası", "🎒 Инвентарь")).font(FontId::proportional(11.0)).color(muted));
+                    ui.label(RichText::new(format!("{}", total_items)).font(FontId::proportional(20.0)).color(Color32::from_rgb(180, 140, 240)).strong());
                 });
             });
 
-            ui.add_space(14.0);
+            ui.add_space(12.0);
 
-            // ─── ACTIVE BOOSTING GAMES SECTION ───
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(strings.pick("🚀 Active Boosting Sessions", "🚀 Aktif Boost Oturumları", "🚀 Активные сессии буста")).font(FontId::proportional(15.0)).strong());
-            });
-            ui.add_space(6.0);
-
-            let mut any_boosting = false;
+            // ─── PRISM HORIZONTAL ACCOUNT / PARALLEL BOOST LIST ───
+            let q = global_search.trim().to_lowercase();
+            let mut shown = 0usize;
 
             for arc in accounts {
-                let (username, id, status, hours, custom_title, games) = {
+                let (username, id, status, hours, custom_title, games, steam_id) = {
                     let a = arc.lock().unwrap();
                     (
                         a.username.clone(),
@@ -107,70 +132,131 @@ impl DashboardView {
                         a.hours_boosted,
                         a.custom_title.clone(),
                         a.games.clone(),
+                        a.steam_id,
                     )
                 };
 
-                if matches!(status, AccountStatus::Boosting) && !games.is_empty() {
-                    any_boosting = true;
+                let is_boosting = matches!(status, AccountStatus::Boosting);
+                match self.filter {
+                    DashFilter::Boosting if !is_boosting => continue,
+                    DashFilter::Stopped if is_boosting => continue,
+                    _ => {}
+                }
 
-                    ThemeEngine::card_frame(theme_mode, colors).show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(format!("👤 {}", username)).font(FontId::proportional(13.5)).strong());
-                            ui.label(RichText::new(format!("• {:.1}h", hours)).font(FontId::proportional(12.0)).color(Color32::from_rgb(130, 150, 175)));
-                            if !custom_title.is_empty() {
-                                ui.label(RichText::new(format!("• \"{}\"", custom_title)).font(FontId::proportional(12.0)).color(Color32::from_rgb(100, 170, 230)));
-                            }
+                if !q.is_empty()
+                    && !username.to_lowercase().contains(&q)
+                    && !games.iter().any(|g| g.name.to_lowercase().contains(&q) || g.app_id.to_string().contains(&q))
+                {
+                    continue;
+                }
 
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.button(RichText::new(strings.btn_stop).font(FontId::proportional(11.5)).color(Color32::from_rgb(255, 120, 120))).clicked() {
-                                    crate::steam::stop_boost(id, arc.clone());
+                shown += 1;
+                let drops_left: u32 = if steam_id != 0 {
+                    get_cached_active_drops(steam_id).iter().map(|d| d.remaining_cards).sum()
+                } else {
+                    0
+                };
+
+                ThemeEngine::card_frame(theme_mode, colors).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        let (st_col, st_txt) = match &status {
+                            AccountStatus::Boosting => (Color32::from_rgb(80, 225, 130), strings.status_boosting),
+                            AccountStatus::Connecting => (Color32::from_rgb(255, 195, 65), strings.status_connecting),
+                            AccountStatus::AwaitingSteamGuard { .. } => (Color32::from_rgb(255, 165, 50), strings.status_guard_needed),
+                            AccountStatus::Error(_) => (Color32::from_rgb(255, 100, 100), strings.status_error),
+                            _ => (muted, strings.status_idle),
+                        };
+
+                        ui.vertical(|ui| {
+                            ui.horizontal(|ui| {
+                                if ui
+                                    .link(RichText::new(format!("👤 {}", username)).font(FontId::proportional(13.5)).strong())
+                                    .on_hover_text(strings.btn_edit)
+                                    .clicked()
+                                {
+                                    edit_account_id = Some(id);
+                                }
+                                ui.label(RichText::new(format!("● {}", st_txt)).font(FontId::proportional(11.5)).color(st_col));
+                            });
+                            ui.label(
+                                RichText::new(format!(
+                                    "{} {} · \"{}\" · 🃏 {} {}",
+                                    games.len(),
+                                    strings.games_count_unit,
+                                    custom_title,
+                                    drops_left,
+                                    strings.pick("drops", "kart", "дроп.")
+                                ))
+                                .font(FontId::proportional(11.0))
+                                .color(muted),
+                            );
+                        });
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            // "..." action menu
+                            ui.menu_button("⋯", |ui| {
+                                if ui.button(strings.edit_title_edit).clicked() {
+                                    edit_account_id = Some(id);
+                                    ui.close_menu();
+                                }
+                                if is_boosting {
+                                    if ui.button(strings.btn_stop).clicked() {
+                                        crate::steam::stop_boost(id, arc.clone());
+                                        ui.close_menu();
+                                    }
+                                    if ui.button(strings.btn_restart).clicked() {
+                                        crate::steam::restart_boost(id, arc.clone());
+                                        ui.close_menu();
+                                    }
+                                } else if ui.button(strings.btn_start).clicked() {
+                                    crate::steam::start_boost(arc.clone());
+                                    ui.close_menu();
                                 }
                             });
-                        });
 
-                        ui.add_space(8.0);
-
-                        // Vertical list of games - each game on its own full-width line (alt alta), never overflows!
-                        ui.vertical(|ui| {
-                            for g in &games {
-                                egui::Frame::none()
-                                    .fill(Color32::from_rgba_unmultiplied(14, 18, 26, 180))
-                                    .rounding(Rounding::same(6.0))
-                                    .inner_margin(egui::Margin::symmetric(10.0, 6.0))
-                                    .stroke(Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 20)))
-                                    .show(ui, |ui| {
-                                        ui.horizontal(|ui| {
-                                            let img_url = format!("https://cdn.cloudflare.steamstatic.com/steam/apps/{}/capsule_sm_120.jpg", g.app_id);
-                                            ui.add(egui::Image::new(img_url).fit_to_exact_size(Vec2::new(42.0, 20.0)).rounding(Rounding::same(3.0)));
-                                            ui.add_space(6.0);
-                                            ui.label(RichText::new(&g.name).font(FontId::proportional(12.5)).strong());
-                                            ui.add_space(4.0);
-                                            ui.label(RichText::new(format!("(AppID: {})", g.app_id)).font(FontId::proportional(11.0)).color(Color32::from_rgb(120, 145, 175)));
-                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                                ui.label(RichText::new(format!("🟢 {}", strings.status_boosting)).font(FontId::proportional(11.0)).color(Color32::from_rgb(70, 230, 130)));
-                                            });
-                                        });
-                                    });
-                                ui.add_space(2.0);
-                            }
+                            ui.add_space(6.0);
+                            ui.label(RichText::new(format!("{:.1}h", hours)).font(FontId::proportional(12.5)).strong());
+                            ui.add_space(6.0);
+                            prism_progress_bar(ui, if is_boosting { 1.0 } else { 0.0 }, 72.0, 5.0, st_col);
                         });
                     });
-                    ui.add_space(4.0);
-                }
+
+                    // Parallel games list
+                    if !games.is_empty() {
+                        ui.add_space(6.0);
+                        for g in &games {
+                            egui::Frame::none()
+                                .fill(Color32::from_rgba_unmultiplied(255, 255, 255, 6))
+                                .rounding(Rounding::same(6.0))
+                                .inner_margin(egui::Margin::symmetric(8.0, 4.0))
+                                .stroke(Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 16)))
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        let img_url = format!("https://cdn.cloudflare.steamstatic.com/steam/apps/{}/capsule_sm_120.jpg", g.app_id);
+                                        ui.add(egui::Image::new(img_url).fit_to_exact_size(Vec2::new(38.0, 18.0)).rounding(Rounding::same(3.0)));
+                                        ui.label(RichText::new(&g.name).font(FontId::proportional(12.0)));
+                                        ui.label(RichText::new(format!("AppID: {}", g.app_id)).font(FontId::proportional(10.5)).color(muted));
+                                    });
+                                });
+                            ui.add_space(2.0);
+                        }
+                    }
+                });
+                ui.add_space(4.0);
             }
 
-            if !any_boosting {
+            if shown == 0 {
                 ThemeEngine::card_frame(theme_mode, colors).show(ui, |ui| {
                     ui.vertical_centered(|ui| {
-                        ui.add_space(14.0);
-                        ui.label(RichText::new(strings.pick("⚪ No accounts currently boosting hours", "⚪ Şu anda saat kasan hesap yok", "⚪ Сейчас нет активного буста")).font(FontId::proportional(13.5)).color(Color32::from_rgb(130, 150, 175)));
-                        ui.label(RichText::new(strings.pick("Select an account from the Accounts tab and click 'Start' to begin boosting.", "Başlamak için Hesaplar sekmesinden bir hesap seçip 'Başlat'a tıklayın.", "Выберите аккаунт во вкладке Аккаунты и нажмите 'Старт'.")).font(FontId::proportional(11.5)).color(Color32::from_rgb(100, 120, 140)));
-                        ui.add_space(14.0);
+                        ui.add_space(16.0);
+                        ui.label(RichText::new(strings.no_accounts).font(FontId::proportional(13.5)).color(muted));
+                        ui.label(RichText::new(strings.no_accounts_hint).font(FontId::proportional(11.5)).color(muted));
+                        ui.add_space(16.0);
                     });
                 });
             }
-
-            ui.add_space(12.0);
         });
+
+        edit_account_id
     }
 }

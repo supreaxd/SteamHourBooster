@@ -1,77 +1,44 @@
-# 🚀 SupBooster v1.2.2 (Telegram Bot Overhaul)
+# 🚀 SupBooster v1.3.0 (Major Update — Liquid Glass, Prism UI, Trade Consolidate & Pricing Fix)
 
-Welcome to **v1.2.2** of **SupBooster** (`SupBoost.exe`)! This release completely rewrites the Telegram Bot command system with 15 trilingual commands, inline action buttons, and QR image delivery.
+> **Languages / Diller / Языки:** **English (Main)** · [🇹🇷 Türkçe](#-türkçe-sürüm-notları-v130) · [🇷🇺 Русский](#-примечания-к-выпуску-v130)
 
----
-
-### 🤖 1. Complete Telegram Bot Rewrite (EN / TR / RU)
-- **All 15 Commands Implemented:** `/start`, `/help`, `/status`, `/start_boost`, `/stop_boost`, `/restart`, `/drops`, `/games`, `/add_game`, `/remove_game`, `/auto_drops`, `/accounts`, `/switch`, `/drop_notify`, and `/qr`.
-- **Trilingual Responses:** Every command reply displays English, Turkish, and Russian together in a single clean message.
-- **Interactive Inline Buttons:** `/status` includes per-account `Start` / `Stop` buttons and `/drops` includes one-tap `Boost <Game>` buttons with full `callback_query` support.
-- **QR Code Image Delivery:** `/qr` renders and sends the Steam QR login image directly in chat via `sendPhoto`.
-- **Silent Chat ID Authorization:** Unauthorized Chat IDs are silently ignored without leaking responses.
+Welcome to **v1.3.0 Major Update** of **SupBooster** (`SupBoost.exe`)! This major release transforms the application with the Prism UI dark glass layout, an ultra-transparent **Liquid Glass** engine with specular edge refraction, working **Trade Consolidate** with mobile confirmation alerts, **Account Balance** with Desktop CSV export, fixed **Market Pricing** strategies, and full localization.
 
 ---
 
-# 🚀 SupBooster v1.2.1 (Maintenance & Usability Release)
+### ✨ 1. Prism UI & Liquid Glass Theme Engine
+- **New `Liquid Glass` Mode (`ThemeMode::LiquidGlass`):** Ultra-transparent frosted background with `window-vibrancy` Acrylic/Blur and crisp specular edge-refraction borders (`14px` rounded glass cards), alongside enhanced `Transparent (Acrylic)`, `Dark`, `Light`, and `System`.
+- **Fixed Transparency & Color Pickers:** Fixed the alpha slider snapping back to `255` on Surface Tint; added a dedicated **Glass Opacity** slider (`10..255`) and pure RGB pickers for Text and Accent colors.
+- **Light Theme Contrast & Hover Fix:** Forced high-contrast black text across all widgets in Light mode and added clean gray hover fills so hovered sidebar tabs never disappear.
+- **Cleaner Sidebar & Wider Window:** Widened default window to `1240x760`, removed redundant `Tools -> Accounts` and `● Boosting` label, added collapsible `▾ ACCOUNTS` with direct click-to-edit on any account (and Dashboard cards), pinned `Changelogs` + `Settings (⚙)` cleanly at the bottom without overlap or clipping, and removed the non-functional top-right search bar.
 
-Welcome to **v1.2.1** of **SupBooster** (`SupBoost.exe`)! This release addresses library browsing, batch boosting operations, and account lifecycle management.
+### ⚖️ 2. Trade Consolidate Fix, Item Selection & Account Balance
+- **Steam Trade API Preflight & Session Fix:** Fixed `Invalid JSON response from Steam Trade API` by extracting `sessionid` cookies from `settoken`, running a preflight `GET` on the trade offer page with `X-Requested-With: XMLHttpRequest`, and surfacing exact Steam error messages if a session expired or accounts aren't friends.
+- **Per-Item Trade Selection + Mobile Confirmation Box:** Added checkboxes for every tradable item, `Select All` / `Deselect All` controls, clean localized `Consolidate` / `Topla` button naming, and a prominent **Steam Guard Mobile Confirmation** info banner when sending offers.
+- **Live Account Balance & Desktop CSV Export:** Displays live cached inventory value (`$X.XX`), card count, sold net/gross earnings, and boosted hours per account with `Refresh All Values` and direct `SupBooster_Balance.csv` export to Desktop.
 
----
+### 🛒 3. Market Pricing Strategies & Steam CM Ping Monitor
+- **4 Real Pricing Strategies:** `Undercut (-$0.01)`, `Instant Sell`, `Market / Median Price`, and `Custom Offset` now compute real prices across item rows, bottom bulk bar, confirmation modal, and Steam `/market/sellitem/` API payloads.
+- **Live Steam CM Ping & Quality:** Background TCP latency monitor in the bottom status bar (`Good` / `Fair` / `Poor` / `No Connection`).
 
-### 🎮 1. Dedicated Library Scrolling & "＋ Add All to Boost"
-- **Smooth & Persistent Scrolling:** Fixed the issue where adding games to boosting restricted vertical scrolling in the Account Owned Games (Library) view. The library now features a spacious scroll container with persistent scrollbars (`ScrollBarVisibility::AlwaysVisible`) and isolated scroll state (`id_salt`), allowing effortless scrolling through your entire library.
-- **One-Click "＋ Add All to Boost":** Added a dedicated `＋ Add All to Boost` button next to `🔄 Refresh Games` in the library header. One click instantly queues all library games (or filtered search results) into your boosting list.
-- **Boosting Games "✕ Clear All":** Added a `✕ Clear All` button in the Boosting Games section to quickly clear all queued games.
-
----
-
-### 🗑️ 2. Account Deletion & Config Synchronization Fixed
-- **Complete Deletion Lifecycle:** Fixed the bug where deleting an account (`🗑`) failed to remove it from the application and `config.json`.
-- **Immediate Disk Persistence:** Deleting or saving an account immediately syncs to `config.json` on disk and updates runtime instances.
-- **Clean Session Termination:** Deleting an active account automatically terminates its Steam CM connection and cleans up background tasks.
-
----
-
-### ⏱️ 3. Dynamic Title Tags in Logs & UI
-- **Live Tag Rendering:** Fixed logging so dynamic tags like `(hours)`, `(games)`, `(time)` display their actual computed values (e.g., `17.4h`, `21 games`) in logs on startup, presence hot-reloads, and 10-minute auto-refresh ticks.
+### 🛠️ 4. Reliability, Tray, UI Scale, Logs & Telegram
+- **System Tray Event Handlers:** Fixed tray right-click menu buttons (`Open SupBooster`, `Start All`, `Stop All`, `Exit`) to respond immediately even when minimized.
+- **Smooth UI Scale Slider & Misc Settings:** Fixed UI zoom oscillation while dragging by committing scale on release; renamed `Security` to `Misc` with silent background DPAPI encryption.
+- **Dedicated Logs Tab, Instant Auto-Save & Telegram:** Top-to-bottom auto-scrolling Logs tab, immediate `config.json` saving, and Telegram `/lang` + `/addaccount <user> | <pass>`.
 
 ---
 
-# 🚀 SupBooster v1.2.0 (Official Release)
+# 🇹🇷 Türkçe Sürüm Notları (v1.3.0)
 
-Welcome to **v1.2.0** of **SupBooster** (`SupBoost.exe`)! This release brings major fixes to the Steam Inventory & Bulk Market Seller engine and the Account Owned Games scanner, along with complete UI polish.
-
----
-
-### 🛒 1. Real-Time Steam Market Price Engine (0.20 Fixed)
-- **Live Price Querying:** Fixed the issue where all inventory items (CS2 skins, stickers, etc.) defaulted to a flat `$0.20` price. The engine now queries live Steam Community Market prices (`/market/priceoverview`) in the background.
-- **Rarity & Type Fallback Estimation:** If an item's live price is still being fetched or temporarily rate-limited, items receive realistic baseline values based on skin rarity (Covert, Classified, Restricted, Mil-Spec), stickers (Glitter, Holo, Foil), cases, and foil cards instead of a fixed $0.20.
-- **Accurate Bulk Market Listing:** Market sale transactions now list items at their true Steam Community Market value (or -$0.01 for Undercut strategy), preventing valuable items from being underpriced.
+- **Prism UI & Yeni `Liquid Glass (Tam Şeffaf)` Teması:** Kenarları ışık kıran buzlu cam çerçeveleri, artırılmış `Acrylic` şeffaflık, serbest bırakılmış şeffaflık (alfa) seçici ve bağımsız **Cam Opaklığı** kaydırıcısı eklendi. Aydınlık temada tüm yazılar her durumda siyah olacak şekilde düzeltildi; sekme üzerine gelindiğinde gri vurgu eklenerek görünmez olma sorunu giderildi.
+- **Sol Menü, Dashboard & Ayarlar Düzeni:** Genişletilebilir `ACCOUNTS` listesi, listeden veya Dashboard'dan doğrudan hesap ayarlarına geçiş, alt bölümde kesilmeyen `ACTIVE BOOST / DROPS` kartı ve en altta `Changelogs` + `⚙ Ayarlar` ikonu. `Security` sekmesi `Misc` olarak sadeleştirildi (DPAPI arka planda sessizce aktif).
+- **Takas (`Topla`) Düzeltmesi & Ürün Seçimi:** Steam Trade API oturum/preflight doğrulaması düzeltildi ve gerçek Steam hata mesajları gösterildi. Takas yapılacak ürünleri tek tek seçme / `Tümünü Seç`, parantezsiz `Topla` düğmesi, telefonunuza mobil onay bildirimi gittiğini gösteren bilgilendirme kutusu ve Masaüstüne doğrudan `SupBooster_Balance.csv` dışa aktarma eklendi.
+- **Pazar Stratejileri, Tray & Ölçek Slider:** `Undercut`, `Instant Sell`, `Pazar Fiyatı` ve `Özel Ofset` gerçek fiyatlarla çalışır hale getirildi; System Tray sağ tık butonları ve arayüz ölçeği kaydırıcısı düzeltildi; Telegram `/lang` ve `/addaccount <kullanıcı> | <şifre>` komutları eklendi.
 
 ---
 
-### 🎮 2. Account Owned Games Scanner Fixed
-- **Multi-Source Library Discovery:** Fixed the issue where clicking "Refresh Games" showed 0 games found. The scanner now scrapes paginated Steam Community badges (`/badges/?p=1..4`), extracts games from inventory items, and checks active Steam CM sessions.
-- **Instant Background UI Update:** Account Owned Games section now automatically updates and repaints immediately when the refresh task completes in the background.
-- **One-Click Boost Addition:** Any owned game can be added directly to the boosting list with one click (`＋ Add to Boost`).
+# 🇷🇺 Примечания к выпуску (v1.3.0)
 
----
-
-### 🔄 3. Infinite Reconnection Loop Resolved
-- **Eliminated Free License Spam:** Removed invalid package license requests (`CMsgClientRequestFreeLicense`) on paid games (e.g. AppID 730 / CS2) that caused Steam CM WebSocket drops right after inventory checks.
-- **Smart Presence Updates:** Replaced rapid 60-second presence packet resends with intelligent 10-minute title refreshes and state-change triggers.
-- **Baseline Card Drop Fix:** Prevented false card drop alerts on startup when comparing against empty initial baseline.
-
----
-
-### 🎨 4. Clean Single Tab Icons & 100% English UI
-- **Single Tab Icons:** Removed duplicate icons on sidebar tabs.
-- **Unified English Interface:** All badges, modals, confirmations, and settings are now standardized to clean English.
-
----
-
-### 📦 Binary Assets
-- `SupBoost.exe`
-- `SupBoost.v1.2.0.exe`
-- `SteamBooster.exe`
+- **Prism UI и новая тема `Liquid Glass`:** Усиленная прозрачность, преломляющие края стекла, исправленный ползунок альфа-канала и ползунок прозрачности стекла, а также чёрный текст и серый hover в Светлой теме.
+- **Исправление обменов и Баланс:** Исправлена ошибка `Invalid JSON` при отправке трейдов (preflight-запрос и `sessionid`), добавлен выбор предметов (`Выбрать все`), баннер уведомления о подтверждении в Steam Mobile, живая стоимость инвентаря и экспорт `SupBooster_Balance.csv` на Рабочий стол.
+- **Стратегии цен, Трей и Масштаб:** Реальный расчёт для 4 стратегий продажи, исправленные кнопки трея, плавный ползунок масштаба интерфейса, отдельная вкладка логов и команды Telegram `/lang`, `/addaccount`.

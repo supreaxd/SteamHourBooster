@@ -14,10 +14,12 @@ use crate::ui::inventory::InventoryView;
 use crate::ui::logs::LogsView;
 use crate::ui::modals::ModalManager;
 use crate::ui::settings::SettingsView;
-use crate::ui::sidebar::{NavTab, Sidebar};
+use crate::ui::sidebar::{NavTab, Sidebar, SidebarAction};
+use crate::ui::statusbar::StatusBar;
 use crate::ui::telegram::TelegramView;
 use crate::ui::theme::{apply_platform_vibrancy, ThemeEngine};
-use crate::ui::TopStatusBar;
+use crate::ui::topbar::{TopBar, TopBarAction};
+use crate::ui::trade_balance::TradeBalanceView;
 
 pub struct SteamBoosterApp {
     config: AppConfig,
@@ -38,11 +40,14 @@ pub struct SteamBoosterApp {
     modal_mgr: ModalManager,
 
     // View Components
+    dashboard_view: DashboardView,
     active_drops_view: ActiveDropsView,
     inventory_view: InventoryView,
+    trade_balance_view: TradeBalanceView,
     accounts_view: AccountsView,
     telegram_view: TelegramView,
     settings_view: SettingsView,
+    global_search: String,
 
     // System Tray
     tray_mgr: Option<crate::tray::TrayManager>,
@@ -52,7 +57,10 @@ pub struct SteamBoosterApp {
 
     // State Tracking
     last_theme_mode: Option<ThemeMode>,
+    last_glass_alpha: u8,
+    last_surface_rgb: [u8; 3],
     last_auto_switch_check: Instant,
+    sidebar_accounts_expanded: bool,
 }
 
 impl SteamBoosterApp {
@@ -66,12 +74,13 @@ impl SteamBoosterApp {
             .map(|a| Arc::new(Mutex::new(a)))
             .collect();
 
-        // Register accounts for Telegram Bot and start service
+        // Register accounts for Telegram Bot and start service + Steam CM Ping Monitor
         crate::telegram::register_accounts_for_bot(runtime_accounts.clone());
         crate::telegram::init_telegram_bot();
+        crate::ping::init_ping_monitor();
 
         // Initialize System Tray
-        let mut tray_mgr = crate::tray::TrayManager::new();
+        let mut tray_mgr = crate::tray::TrayManager::new(&cc.egui_ctx);
         if let Some(tray) = &mut tray_mgr {
             tray.update_status(&runtime_accounts);
         }
@@ -108,15 +117,21 @@ impl SteamBoosterApp {
             show_sell_modal: false,
             modal_selected_items: Vec::new(),
             modal_mgr: ModalManager::new(),
+            dashboard_view: DashboardView::new(),
             active_drops_view: ActiveDropsView::new(),
             inventory_view: InventoryView::new(),
+            trade_balance_view: TradeBalanceView::new(),
             accounts_view: AccountsView::new(),
             telegram_view: TelegramView::new(),
             settings_view: SettingsView::new(),
+            global_search: String::new(),
             tray_mgr,
             updater,
             last_theme_mode: None,
+            last_glass_alpha: 0,
+            last_surface_rgb: [0, 0, 0],
             last_auto_switch_check: Instant::now(),
+            sidebar_accounts_expanded: true,
         }
     }
 
@@ -346,11 +361,27 @@ impl SteamBoosterApp {
 }
 
 impl eframe::App for SteamBoosterApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        if matches!(self.config.settings.theme_mode, ThemeMode::Transparent | ThemeMode::LiquidGlass) {
+            [0.0, 0.0, 0.0, 0.0]
+        } else {
+            let s = self.config.settings.custom_colors.surface;
+            [s[0] as f32 / 255.0, s[1] as f32 / 255.0, s[2] as f32 / 255.0, 1.0]
+        }
+    }
+
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         // Apply theme and custom colors to egui
         ThemeEngine::apply_theme(ctx, self.config.settings.theme_mode, &self.config.settings.custom_colors);
-        if self.last_theme_mode != Some(self.config.settings.theme_mode) {
+        if self.last_theme_mode != Some(self.config.settings.theme_mode)
+            || self.last_glass_alpha != self.config.settings.custom_colors.glass_alpha
+            || self.last_surface_rgb != self.config.settings.custom_colors.surface
+        {
             self.last_theme_mode = Some(self.config.settings.theme_mode);
+            self.last_glass_alpha = self.config.settings.custom_colors.glass_alpha;
+            self.last_surface_rgb = self.config.settings.custom_colors.surface;
+            #[cfg(target_os = "windows")]
+            apply_platform_vibrancy(frame, self.config.settings.theme_mode, &self.config.settings.custom_colors);
         }
 
         // Apply UI scale factor
@@ -367,7 +398,7 @@ impl eframe::App for SteamBoosterApp {
         // Poll System Tray actions
         if let Some(tray) = &mut self.tray_mgr {
             tray.update_status(&self.runtime_accounts);
-            if let Some(action) = tray.poll_events() {
+            while let Some(action) = tray.poll_events() {
                 match action {
                     crate::tray::TrayAction::OpenWindow => {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
@@ -399,52 +430,143 @@ impl eframe::App for SteamBoosterApp {
             }
         }
 
-        // ─── 1. TOP STATUS BAR ───
-        egui::TopBottomPanel::top("top_status_bar")
-            .exact_height(46.0)
+        // ─── 1. TOP TOOLBAR (~48px) ───
+        let prev_settings_json = serde_json::to_string(&self.config.settings).ok();
+
+        egui::TopBottomPanel::top("top_toolbar")
+            .exact_height(48.0)
+            .show_separator_line(false)
+            .frame(ThemeEngine::panel_frame(self.config.settings.theme_mode, &self.config.settings.custom_colors, false))
             .show(ctx, |ui| {
-                TopStatusBar::draw(
+                match TopBar::draw(
+                    ui,
+                    &self.config.settings.custom_colors,
+                    self.config.settings.theme_mode,
+                    &strings,
+                ) {
+                    TopBarAction::QuickAdd => {
+                        self.accounts_view.editing_account = Some(Account::new(self.next_id));
+                        self.accounts_view.is_adding_new = true;
+                        self.active_tab = NavTab::Accounts;
+                    }
+                    TopBarAction::StartAll => {
+                        for acc in &self.runtime_accounts {
+                            steam::start_boost(acc.clone());
+                        }
+                    }
+                    TopBarAction::StopAll => {
+                        for acc in &self.runtime_accounts {
+                            let id = arc_id(acc);
+                            steam::stop_boost(id, acc.clone());
+                        }
+                    }
+                    TopBarAction::RestartAll => {
+                        for acc in &self.runtime_accounts {
+                            let id = arc_id(acc);
+                            steam::restart_boost(id, acc.clone());
+                        }
+                    }
+                    TopBarAction::QrLogin => {
+                        self.qr_auth.start();
+                        self.show_qr_modal = true;
+                    }
+                    TopBarAction::None => {}
+                }
+            });
+
+        // ─── 1b. BOTTOM STATUS BAR (~28px) ───
+        egui::TopBottomPanel::bottom("bottom_status_bar")
+            .exact_height(28.0)
+            .show_separator_line(false)
+            .frame(ThemeEngine::panel_frame(self.config.settings.theme_mode, &self.config.settings.custom_colors, false))
+            .show(ctx, |ui| {
+                StatusBar::draw(
                     ui,
                     &self.runtime_accounts,
                     &self.config.settings.custom_colors,
                     self.config.settings.theme_mode,
+                    self.config.settings.telegram_enabled,
                     &strings,
                 );
             });
 
-        // ─── 2. LEFT SIDEBAR (Fixed 200px width) ───
+        // ─── 2. LEFT SIDEBAR (~236px width, dark glass panel) ───
         egui::SidePanel::left("left_sidebar")
-            .exact_width(200.0)
+            .exact_width(236.0)
             .resizable(false)
+            .show_separator_line(false)
+            .frame(ThemeEngine::panel_frame(self.config.settings.theme_mode, &self.config.settings.custom_colors, true))
             .show(ctx, |ui| {
-                Sidebar::draw(
+                let selected_id = self.accounts_view.editing_account.as_ref().map(|a| a.id);
+                match Sidebar::draw(
                     ui,
                     &mut self.active_tab,
+                    &mut self.sidebar_accounts_expanded,
+                    selected_id,
+                    &self.runtime_accounts,
                     &self.config.settings.custom_colors,
+                    &mut self.config.settings.theme_mode,
                     &strings,
                     &self.updater,
                     &mut self.show_changelogs_modal,
-                );
+                ) {
+                    SidebarAction::OpenAllAccounts => {
+                        self.accounts_view.editing_account = None;
+                        self.accounts_view.is_adding_new = false;
+                        self.active_tab = NavTab::Accounts;
+                    }
+                    SidebarAction::SelectAccount(acc_id) => {
+                        if let Some(arc) = self.runtime_accounts.iter().find(|a| a.lock().map(|g| g.id == acc_id).unwrap_or(false)) {
+                            if let Ok(acc_clone) = arc.lock().map(|g| g.clone()) {
+                                self.accounts_view.editing_account = Some(acc_clone);
+                                self.accounts_view.is_adding_new = false;
+                                self.active_tab = NavTab::Accounts;
+                            }
+                        }
+                    }
+                    SidebarAction::AddAccount => {
+                        self.accounts_view.editing_account = Some(Account::new(self.next_id));
+                        self.accounts_view.is_adding_new = true;
+                        self.active_tab = NavTab::Accounts;
+                    }
+                    SidebarAction::ThemeToggled => {
+                        #[cfg(target_os = "windows")]
+                        apply_platform_vibrancy(frame, self.config.settings.theme_mode, &self.config.settings.custom_colors);
+                    }
+                    SidebarAction::None => {}
+                }
             });
 
         // ─── 3. CENTRAL PANEL (Active Tab Router) ───
-        let prev_settings_json = serde_json::to_string(&self.config.settings).ok();
+        let mut trade_save_needed = false;
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default()
+            .frame(ThemeEngine::panel_frame(self.config.settings.theme_mode, &self.config.settings.custom_colors, false))
+            .show(ctx, |ui| {
             match self.active_tab {
                 NavTab::Dashboard => {
-                    DashboardView::draw(
+                    if let Some(edit_id) = self.dashboard_view.draw(
                         ui,
                         &self.runtime_accounts,
+                        &self.global_search,
                         &self.config.settings.custom_colors,
                         self.config.settings.theme_mode,
                         &strings,
-                    );
+                    ) {
+                        if let Some(arc) = self.runtime_accounts.iter().find(|a| a.lock().map(|g| g.id == edit_id).unwrap_or(false)) {
+                            if let Ok(acc_clone) = arc.lock().map(|g| g.clone()) {
+                                self.accounts_view.editing_account = Some(acc_clone);
+                                self.accounts_view.is_adding_new = false;
+                                self.active_tab = NavTab::Accounts;
+                            }
+                        }
+                    }
                 }
                 NavTab::ActiveDrops => {
                     self.active_drops_view.draw(
                         ui,
                         &self.runtime_accounts,
+                        &self.global_search,
                         &self.config.settings.custom_colors,
                         self.config.settings.theme_mode,
                         &strings,
@@ -455,11 +577,23 @@ impl eframe::App for SteamBoosterApp {
                     self.inventory_view.draw(
                         ui,
                         &self.runtime_accounts,
+                        &self.global_search,
+                        &mut self.config.settings.sell_custom_offset,
                         &self.config.settings.custom_colors,
                         self.config.settings.theme_mode,
                         &strings,
                         &mut self.show_sell_modal,
                         &mut self.modal_selected_items,
+                    );
+                }
+                NavTab::TradeBalance => {
+                    self.trade_balance_view.draw(
+                        ui,
+                        &mut self.runtime_accounts,
+                        &self.config.settings.custom_colors,
+                        self.config.settings.theme_mode,
+                        &strings,
+                        &mut trade_save_needed,
                     );
                 }
                 NavTab::Accounts => {
@@ -503,6 +637,11 @@ impl eframe::App for SteamBoosterApp {
             }
         });
 
+        if trade_save_needed {
+            self.sync_from_runtime();
+            self.config.save();
+        }
+
         // Immediately save whenever any setting changes
         if serde_json::to_string(&self.config.settings).ok() != prev_settings_json {
             self.config.save();
@@ -522,6 +661,7 @@ impl eframe::App for SteamBoosterApp {
             }
         };
 
+        let mut sold_sync = false;
         if let Ok(lock) = self.modal_mgr.sell_result.lock() {
             if let Some(ref res) = *lock {
                 if !res.sold_asset_ids.is_empty() {
@@ -529,7 +669,22 @@ impl eframe::App for SteamBoosterApp {
                         self.inventory_view.selected_asset_ids.remove(sold_id);
                     }
                 }
+                if res.total_sold > 0 && !self.modal_mgr.balance_credited {
+                    if let Some(acc_arc) = self.runtime_accounts.get(self.inventory_view.selected_account_index) {
+                        if let Ok(mut a) = acc_arc.lock() {
+                            a.total_items_sold += res.total_sold as u64;
+                            a.total_gross_earned += res.total_gross;
+                            a.total_net_earned += res.total_net;
+                        }
+                    }
+                    self.modal_mgr.balance_credited = true;
+                    sold_sync = true;
+                }
             }
+        }
+        if sold_sync {
+            self.sync_from_runtime();
+            self.config.save();
         }
 
         self.modal_mgr.draw_sell_modal(
@@ -537,6 +692,7 @@ impl eframe::App for SteamBoosterApp {
             &mut self.show_sell_modal,
             &self.modal_selected_items,
             self.inventory_view.sell_strategy,
+            self.config.settings.sell_custom_offset,
             active_token,
             active_steam_id,
             active_proxy,

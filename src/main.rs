@@ -9,6 +9,7 @@ mod free_games;
 mod i18n;
 mod inventory;
 mod logger;
+mod ping;
 mod qr_auth;
 mod steam;
 mod telegram;
@@ -29,8 +30,8 @@ fn main() -> eframe::Result<()> {
 
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("SupBooster")
-        .with_inner_size([1040.0, 700.0])
-        .with_min_inner_size([960.0, 620.0])
+        .with_inner_size([1240.0, 760.0])
+        .with_min_inner_size([1120.0, 660.0])
         .with_transparent(true);
 
     if let Ok(icon) = eframe::icon_data::from_png_bytes(APP_ICON_PNG) {

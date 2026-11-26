@@ -1,68 +1,60 @@
-# ⚡ SupBooster (SteamHourBooster)
+# ⚡ SupBooster v1.3.0 (SteamHourBooster)
 
-A lightweight, feature-rich multi-account Steam hour booster and trading card idle tool with a modern desktop GUI built in **Rust** using **egui**, **window-vibrancy**, and **steam-vent**.
+> **Languages / Diller / Языки:** **English (Main)** · [🇹🇷 Türkçe](README.tr.md) · [🇷🇺 Русский](README.ru.md)
+
+A lightweight, feature-rich multi-account Steam hour booster, trading card idle manager, inventory seller, and trade consolidator with a modern **Prism UI & Liquid Glass** desktop interface built in **100% Rust** (`eframe` / `egui`, `window-vibrancy`, `steam-vent`).
 
 ---
 
-## ✨ Features
+## ✨ Key Features (v1.3.0 Major Update)
 
-- **Transparent Glass & Theme Engine**: 4 distinct theme modes (Dark, Light, System, Transparent Glass / Blur) with Windows 11 Acrylic/Mica hardware vibrancy and customizable RGB tint, text, and accent color pickers.
-- **Active Drops & Auto-Switch**: Scans Steam badge data to identify games with remaining card drops (`remaining_cards > 0`), shows remaining card drop badges, and automatically swaps to the next eligible game once a game's drops hit 0.
-- **Inventory Inspection & Bulk Selling**: Game-grouped collapsing headers, Steam CDN item thumbnails, live Steam Community Market prices, gross & net fee calculation (15% Steam/game cut), floating sticky action bar, Quick Sell / Undercut strategies, and 2FA mobile confirmations.
-- **Built with 100% Rust**: Engineered in pure Rust for blazing-fast performance, memory safety, and ultra-low CPU/RAM footprint (~50 MB RAM).
-- **Multi-Account Boosting**: Boost hours simultaneously across multiple Steam accounts.
-- **Multi-Game Boosting**: Select and boost up to 32 games per account at the same time.
-- **QR Code & Token Login**: Quick and secure QR code authentication, stored session refresh tokens (no need to re-enter credentials), and Shared Secret (auto-2FA TOTP) support.
-- **Custom Game Titles**: Display custom non-Steam game titles or dynamic rotating titles with live variables (`{hours}`, `{time}`, etc.).
-- **AFK Auto-Responder**: Automatically replies to incoming Steam friend messages while boosting, with customizable cooldowns per contact to prevent spam.
-- **Trading Card Drop Tracker**: Monitors Steam trading card drops in real time and reports drop events along with estimated Steam Community Market prices directly to Telegram.
-- **Free Game Hunter (License Claimer)**: Detects and automatically claims free-to-keep promotional packages and weekend giveaways directly to your Steam accounts.
-- **Per-Account SOCKS5 / HTTP Proxy**: Route individual Steam accounts through dedicated proxies to isolate IP addresses.
-- **Security & DPAPI Encryption**: Passwords and session tokens are encrypted at rest using Windows Data Protection API (DPAPI).
-- **Auto-Pause on Real Game**: Automatically suspends boosting when you launch a real game, and resumes when you finish playing.
-- **Scheduler & Auto-Start**: Configure scheduled boosting hours and optional Windows startup with system tray minimization.
-- **Developer Debug Packet Inspector**: Live interactive console monitoring underlying Steam CM protocol packets and session events.
+- **Prism UI & Liquid Glass Engine**: 5 theme modes (**Dark**, **Light**, **System**, **Transparent Acrylic**, and **Liquid Glass** with specular frosted-glass edge refraction), customizable RGB/RGBA tint, text, and accent pickers, plus an independent Glass Opacity slider.
+- **Multi-Account & Unlimited Parallel Boosting**: Expandable sidebar `ACCOUNTS` list with direct per-account quick access, unlimited parallel game boosting, and a live `Steam CM Ping & Connection Quality` monitor in the bottom status bar.
+- **Active Drops & Auto-Switch**: Scans Steam badge data to list games with remaining trading card drops (`remaining_cards > 0`), allows one-click queueing, and automatically switches to the next eligible game when drops hit `0`.
+- **Inventory & Bulk Market Seller (4 Pricing Strategies)**: Groups cards & items by game with live Steam Community Market valuations and 15% fee breakdown. Supports **Undercut (-$0.01)**, **Instant Sell**, **Market / Median Price**, and **Custom Offset**, plus mobile confirmation prompts.
+- **Trade Consolidate & Account Balance**: Send Steam Trade Offers from selected alt accounts to your main account with item selection checkboxes, Select All / Deselect All, preflight session validation, and Mobile Confirmation notification banner. Track per-account inventory value, cards earned, net/gross revenue, boosted hours, and export directly to `SupBooster_Balance.csv` on Desktop.
+- **Telegram Bot Control (`/lang`, `/addaccount`, 15+ Commands)**: Remotely check `/status`, manage boosts, inspect `/drops`, switch bot language (`/lang en|tr|ru`), add accounts (`/addaccount <user> | <pass>`), and receive QR login images and card drop alerts.
+- **Dedicated Live Logs & Instant Settings Save**: Top-to-bottom live logs with auto-scroll in their own sidebar tab, and immediate `config.json` persistence on every setting change.
+- **Background Security & System Tray**: Credentials and refresh tokens are encrypted locally with Windows DPAPI in the background, paired with responsive System Tray controls (`Open`, `Start All`, `Stop All`, `Exit`).
 
 ---
 
 ## 🚀 Getting Started
 
 ### Download Pre-built Release
-Check the [Releases](https://github.com/supreaxd/SteamHourBooster/releases) section for the latest `SupBoost.exe`.
+Download the latest `SupBoost.exe` from the [Releases](https://github.com/supreaxd/SteamHourBooster/releases) page.
 
 ### Building from Source
-
-#### Prerequisites
-- [Rust](https://rustup.rs/) (stable channel, 2021 edition)
-- Windows 10 / 11
-
-#### Build Command
 ```powershell
-# Clone the repository
 git clone https://github.com/supreaxd/SteamHourBooster.git
 cd SteamHourBooster
-
-# Build in release mode
 cargo build --release
 ```
-
-The optimized executable will be located at:
-`target/release/SupBoost.exe`
+Executable output: `target/release/SupBoost.exe`
 
 ---
 
-## 🔒 Security & Privacy
-
-All credentials, passwords, and tokens are stored locally on your machine and encrypted using Windows DPAPI. Your credentials are never uploaded to any third-party servers; all Steam network traffic communicates directly with official Valve Steam CM servers (or via your configured proxies).
-
----
-
-## ⚠️ Disclaimer
-
-This tool is designed for educational and personal automation purposes. Use at your own risk. The developers are not affiliated with Valve Corporation or Steam.
+## 🔒 Privacy & Disclaimer
+All credentials and session tokens are stored locally and encrypted with Windows DPAPI. Network traffic communicates directly with official Steam servers (or your configured per-account SOCKS5/HTTP proxy). Not affiliated with Valve Corporation or Steam.
 
 ---
 
-## 📄 License
+# 🇹🇷 Türkçe Özet
 
-MIT License. See [LICENSE](LICENSE) for details.
+**SupBooster v1.3.0**, **Rust** ile geliştirilmiş modern **Prism UI & Liquid Glass** arayüzlü çoklu hesap Steam saat kasma, kart düşürme, toplu pazar satış ve takas birleştirme aracıdır.
+
+- **Liquid Glass & Şeffaf UI:** Kenarları ışık kıran tam şeffaf `Liquid Glass` teması, `Acrylic` şeffaflık, ayarlanabilir cam opaklığı ve yüksek kontrastlı Aydınlık/Koyu tema.
+- **Takas & Bilanço (`Topla` / `Hesap Bilançosu`):** Alt hesaplardaki kartları ve takaslanabilir öğeleri tek tek seçip (`Tümünü Seç` destekli) ana hesaba aktarma, telefon mobil onay bilgilendirme kutusu, canlı envanter değeri ve Masaüstüne doğrudan `CSV` dışa aktarma.
+- **Pazar Fiyat Stratejileri:** `Undercut (-$0.01)`, `Instant Sell`, `Pazar Fiyatı` ve `Özel Ofset` ile gerçek fiyat hesaplamalı toplu satış.
+- **Telegram Botu & Canlı Loglar:** `/lang` ile tek dil seçimi, `/addaccount <kullanıcı> | <şifre>`, inline butonlar ve en alta akan ayrı Loglar sekmesi.
+
+---
+
+# 🇷🇺 Краткое описание (Русский)
+
+**SupBooster v1.3.0** — быстрое десктоп-приложение на **Rust** с интерфейсом **Prism UI & Liquid Glass** для одновременного буста часов Steam, фарма коллекционных карточек, массовой продажи на Торговой площадке и сбора предметов на основной аккаунт.
+
+- **Liquid Glass и темы:** Полностью прозрачный режим `Liquid Glass` с преломляющими границами, `Acrylic`, ползунок прозрачности стекла и контрастная Светлая тема.
+- **Обмен и Баланс:** Сбор выбранных предметов с твинков на основу (`Выбрать все`), уведомление о подтверждении в Steam Mobile, оценка инвентаря и экспорт `CSV` на Рабочий стол.
+- **4 стратегии цены:** `Undercut (-$0.01)`, `Instant Sell`, `Рыночная цена` и `Свой сдвиг`.
+- **Telegram-бот и Логи:** Команды `/lang`, `/addaccount <логин> | <пароль>`, inline-кнопки и отдельная вкладка логов с автопрокруткой вниз.
