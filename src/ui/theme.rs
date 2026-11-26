@@ -11,18 +11,18 @@ impl ThemeEngine {
             ThemeMode::Dark | ThemeMode::System => Visuals::dark(),
             ThemeMode::Transparent => {
                 let mut v = Visuals::dark();
-                let a = (colors.glass_alpha as f32 * 0.25).clamp(16.0, 120.0) as u8;
+                let a = (colors.glass_alpha as f32 * 0.32).clamp(32.0, 130.0) as u8;
                 v.panel_fill = Color32::from_rgba_unmultiplied(colors.surface[0], colors.surface[1], colors.surface[2], a);
-                v.window_fill = Color32::from_rgba_unmultiplied(colors.surface[0], colors.surface[1], colors.surface[2], 145);
+                v.window_fill = Color32::from_rgba_unmultiplied(colors.surface[0], colors.surface[1], colors.surface[2], 150);
                 v.extreme_bg_color = Color32::from_rgba_unmultiplied(8, 10, 16, 110);
                 v
             }
             ThemeMode::LiquidGlass => {
                 let mut v = Visuals::dark();
-                let a = (colors.glass_alpha as f32 * 0.05).clamp(4.0, 28.0) as u8;
+                let a = (colors.glass_alpha as f32 * 0.14).clamp(18.0, 68.0) as u8;
                 v.panel_fill = Color32::from_rgba_unmultiplied(colors.surface[0], colors.surface[1], colors.surface[2], a);
-                v.window_fill = Color32::from_rgba_unmultiplied(colors.surface[0], colors.surface[1], colors.surface[2], 80);
-                v.extreme_bg_color = Color32::from_rgba_unmultiplied(8, 10, 16, 48);
+                v.window_fill = Color32::from_rgba_unmultiplied(colors.surface[0], colors.surface[1], colors.surface[2], 105);
+                v.extreme_bg_color = Color32::from_rgba_unmultiplied(8, 10, 16, 75);
                 v
             }
         };
@@ -92,9 +92,9 @@ impl ThemeEngine {
         let (fill, stroke) = match mode {
             ThemeMode::LiquidGlass => {
                 let alpha = if is_sidebar {
-                    (colors.glass_alpha as f32 * 0.08).clamp(6.0, 34.0) as u8
+                    (colors.glass_alpha as f32 * 0.16).clamp(22.0, 72.0) as u8
                 } else {
-                    (colors.glass_alpha as f32 * 0.04).clamp(4.0, 20.0) as u8
+                    (colors.glass_alpha as f32 * 0.10).clamp(18.0, 54.0) as u8
                 };
                 let edge_stroke = if is_sidebar {
                     Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(235, 245, 255, 85))
@@ -151,7 +151,7 @@ impl ThemeEngine {
     pub fn card_frame(mode: ThemeMode, colors: &CustomThemeColors) -> Frame {
         let (fill, stroke, rounding) = match mode {
             ThemeMode::LiquidGlass => {
-                let a = (colors.glass_alpha as f32 * 0.11).clamp(10.0, 46.0) as u8;
+                let a = (colors.glass_alpha as f32 * 0.18).clamp(20.0, 76.0) as u8;
                 (
                     Color32::from_rgba_unmultiplied(colors.surface[0], colors.surface[1], colors.surface[2], a),
                     // Crisp specular edge refraction border (bright frosted glass rim)
@@ -244,33 +244,30 @@ impl ThemeEngine {
     }
 }
 
-/// Applies Acrylic / Mica / Blur via window-vibrancy when running on Windows
+/// Applies Acrylic / Mica via window-vibrancy when running on Windows (avoids broken Win11 apply_blur black screen)
 #[cfg(target_os = "windows")]
 pub fn apply_platform_vibrancy(window: &impl raw_window_handle::HasWindowHandle, mode: ThemeMode, colors: &CustomThemeColors) {
+    let _ = window_vibrancy::clear_blur(window);
+    let _ = window_vibrancy::clear_mica(window);
+
     match mode {
         ThemeMode::LiquidGlass => {
-            // Very light blur (like minimal glass refraction) via DWM apply_blur first, fallback to ultra-light Acrylic
-            let a = (colors.glass_alpha as f32 * 0.06).clamp(4.0, 28.0) as u8;
+            // Smooth, lighter frosted Acrylic blur (Windows 10/11 safe — never goes solid black or flickers on scroll)
+            let a = (colors.glass_alpha as f32 * 0.18).clamp(24.0, 72.0) as u8;
             let color = Some((colors.surface[0], colors.surface[1], colors.surface[2], a));
-            if window_vibrancy::apply_blur(window, color).is_err() {
-                if window_vibrancy::apply_acrylic(window, color).is_err() {
-                    let _ = window_vibrancy::apply_mica(window, Some(true));
-                }
+            if window_vibrancy::apply_acrylic(window, color).is_err() {
+                let _ = window_vibrancy::apply_mica(window, Some(true));
             }
         }
         ThemeMode::Transparent => {
-            let a = (colors.glass_alpha as f32 * 0.30).clamp(18.0, 120.0) as u8;
+            let a = (colors.glass_alpha as f32 * 0.42).clamp(45.0, 145.0) as u8;
             let color = Some((colors.surface[0], colors.surface[1], colors.surface[2], a));
             if window_vibrancy::apply_acrylic(window, color).is_err() {
-                if window_vibrancy::apply_blur(window, color).is_err() {
-                    let _ = window_vibrancy::apply_mica(window, Some(true));
-                }
+                let _ = window_vibrancy::apply_mica(window, Some(true));
             }
         }
         _ => {
             let _ = window_vibrancy::clear_acrylic(window);
-            let _ = window_vibrancy::clear_mica(window);
-            let _ = window_vibrancy::clear_blur(window);
         }
     }
 }

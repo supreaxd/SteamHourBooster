@@ -293,7 +293,7 @@ impl Sidebar {
                     },
                 );
 
-                ui.add_space(10.0);
+                ui.add_space(16.0);
 
                 // Live Boosting / Card Drops Summary Box (narrower, higher contrast text, clean margins)
                 let card_stroke = if *theme_mode == ThemeMode::LiquidGlass {
