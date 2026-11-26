@@ -333,9 +333,10 @@ fn parse_inventory_json(json: &serde_json::Value, items: &mut Vec<InventoryItem>
             let marketable = desc.get("marketable").and_then(|m| m.as_i64()).unwrap_or(0) == 1;
             let tradable = desc.get("tradable").and_then(|t| t.as_i64()).unwrap_or(0) == 1;
 
-            // Extract tags for game name and item type
+            // Extract tags for game name, item type, and rarity
             let mut game_name = String::new();
             let mut item_type = "Item".to_string();
+            let mut rarity_name = String::new();
 
             if let Some(tags) = desc.get("tags").and_then(|t| t.as_array()) {
                 for tag in tags {
@@ -345,6 +346,8 @@ fn parse_inventory_json(json: &serde_json::Value, items: &mut Vec<InventoryItem>
                         game_name = loc_name.to_string();
                     } else if cat == "item_class" || cat == "Type" || cat == "cardborder" {
                         item_type = loc_name.to_string();
+                    } else if cat == "Rarity" || cat == "rarity" {
+                        rarity_name = loc_name.to_string();
                     }
                 }
             }
@@ -363,29 +366,36 @@ fn parse_inventory_json(json: &serde_json::Value, items: &mut Vec<InventoryItem>
             } else {
                 let name_lower = name.to_lowercase();
                 let type_lower = item_type.to_lowercase();
+                let rarity_lower = rarity_name.to_lowercase();
                 let estimated = if name_lower.contains("knife") || name_lower.contains("karambit") || name_lower.contains("bayonet") || name_lower.contains("gloves") {
                     85.00
+                } else if type_lower.contains("graffiti") || name_lower.contains("sealed graffiti") {
+                    0.04
                 } else if name_lower.contains("glitter") || name_lower.contains("holo") || name_lower.contains("foil") || name_lower.contains("gold") {
-                    0.85
+                    0.45
                 } else if type_lower.contains("sticker") || type_lower.contains("çıkartma") {
-                    0.20
+                    0.10
                 } else if type_lower.contains("case") || type_lower.contains("kasa") || type_lower.contains("container") {
-                    0.75
+                    0.65
                 } else if type_lower.contains("parlak") || type_lower.contains("foil") {
-                    0.35
+                    0.30
                 } else if type_lower.contains("kart") || type_lower.contains("card") {
-                    0.08
+                    0.06
                 } else if default_app_id == 730 {
-                    if name_lower.contains("covert") || name_lower.contains("red") {
-                        12.00
-                    } else if name_lower.contains("classified") || name_lower.contains("pink") {
-                        3.50
-                    } else if name_lower.contains("restricted") || name_lower.contains("purple") {
-                        1.20
-                    } else if name_lower.contains("viper") || name_lower.contains("firebreathing") || name_lower.contains("uncharted") {
-                        0.85
+                    if rarity_lower.contains("covert") || name_lower.contains("covert") {
+                        10.00
+                    } else if rarity_lower.contains("classified") || name_lower.contains("classified") {
+                        3.20
+                    } else if rarity_lower.contains("restricted") || name_lower.contains("restricted") {
+                        0.95
+                    } else if rarity_lower.contains("mil-spec") || rarity_lower.contains("high grade") {
+                        0.18
+                    } else if rarity_lower.contains("industrial") {
+                        0.07
+                    } else if rarity_lower.contains("consumer") || rarity_lower.contains("base grade") {
+                        0.04
                     } else {
-                        0.35
+                        0.08
                     }
                 } else {
                     0.05
@@ -434,6 +444,16 @@ pub fn set_cached_item_price(app_id: u32, market_hash_name: &str, price: (f64, f
     }
 }
 
+fn parse_usd_price(raw: &str) -> Option<f64> {
+    let cleaned: String = raw
+        .replace('$', "")
+        .replace(',', ".")
+        .chars()
+        .filter(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
+    cleaned.parse::<f64>().ok().filter(|&p| p > 0.0)
+}
+
 /// Fetch real-time market price for a single item by market_hash_name
 pub async fn fetch_market_price(market_hash_name: &str, app_id: u32, proxy_url: Option<String>) -> Option<(f64, f64)> {
     if let Some(cached) = get_cached_item_price(app_id, market_hash_name) {
@@ -442,41 +462,45 @@ pub async fn fetch_market_price(market_hash_name: &str, app_id: u32, proxy_url: 
 
     let client = build_http_client(proxy_url);
     let url = format!(
-        "https://steamcommunity.com/market/priceoverview/?appid={}&currency=1&market_hash_name={}",
+        "https://steamcommunity.com/market/priceoverview/?country=US&currency=1&appid={}&market_hash_name={}",
         app_id,
         crate::data::urlencoding_encode(market_hash_name)
     );
 
-    let req = client
-        .get(&url)
-        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-        .header("Accept", "application/json, text/javascript, */*; q=0.01")
-        .header("Referer", "https://steamcommunity.com/market/");
+    for attempt in 0..2 {
+        let req = client
+            .get(&url)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+            .header("Accept", "application/json, text/javascript, */*; q=0.01")
+            .header("Referer", "https://steamcommunity.com/market/");
 
-    if let Ok(resp) = req.send().await {
-        if resp.status().is_success() {
-            if let Ok(json) = resp.json::<serde_json::Value>().await {
-                if json.get("success").and_then(|s| s.as_bool()).unwrap_or(false) {
-                    let price_str_opt = json.get("lowest_price").and_then(|p| p.as_str())
-                        .or_else(|| json.get("median_price").and_then(|p| p.as_str()));
-                    if let Some(price_str) = price_str_opt {
-                        let cleaned: String = price_str
-                            .replace('$', "")
-                            .replace(',', ".")
-                            .chars()
-                            .filter(|c| c.is_ascii_digit() || *c == '.')
-                            .collect();
-                        if let Ok(price) = cleaned.parse::<f64>() {
-                            if price > 0.0 {
-                                let receives = calculate_seller_receives(price);
-                                set_cached_item_price(app_id, market_hash_name, (price, receives));
-                                return Some((price, receives));
-                            }
+        if let Ok(resp) = req.send().await {
+            if resp.status().as_u16() == 429 && attempt == 0 {
+                tokio::time::sleep(Duration::from_millis(2500)).await;
+                continue;
+            }
+            if resp.status().is_success() {
+                if let Ok(json) = resp.json::<serde_json::Value>().await {
+                    if json.get("success").and_then(|s| s.as_bool()).unwrap_or(false) {
+                        let lowest = json.get("lowest_price").and_then(|p| p.as_str()).and_then(parse_usd_price);
+                        let median = json.get("median_price").and_then(|p| p.as_str()).and_then(parse_usd_price);
+                        // Protect against outlier lowest_price spikes (e.g. $12.00 on $0.04 graffiti)
+                        let price_opt = match (lowest, median) {
+                            (Some(l), Some(m)) if l > m * 2.5 => Some(m),
+                            (Some(l), _) => Some(l),
+                            (None, Some(m)) => Some(m),
+                            (None, None) => None,
+                        };
+                        if let Some(price) = price_opt {
+                            let receives = calculate_seller_receives(price);
+                            set_cached_item_price(app_id, market_hash_name, (price, receives));
+                            return Some((price, receives));
                         }
                     }
                 }
             }
         }
+        break;
     }
     None
 }
@@ -502,7 +526,7 @@ pub async fn update_inventory_market_prices(
                 }
             }
         }
-        tokio::time::sleep(Duration::from_millis(180)).await;
+        tokio::time::sleep(Duration::from_millis(450)).await;
     }
     if updated_any {
         logger::log_info(&format!("✓ Updated real-time Steam Community Market prices for SteamID {}", steam_id));
@@ -1223,12 +1247,42 @@ pub async fn execute_consolidate_trade(
 
     let mut active_session_id = session_id;
     let mut cookie_header = format!("sessionid={}; steamLoginSecure={};", active_session_id, steam_login_secure);
-    let client = build_http_client(proxy_url);
 
-    // Preflight GET on tradeoffer page so Steam initializes/validates sessionid & surfaces any block reason
+    let mut client_builder = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+        .cookie_store(true)
+        .timeout(Duration::from_secs(15));
+    if let Some(ref p) = proxy_url.as_deref().filter(|s| !s.trim().is_empty()) {
+        if let Ok(prx) = reqwest::Proxy::all(*p) {
+            client_builder = client_builder.proxy(prx);
+        }
+    }
+    let client = client_builder.build().unwrap_or_default();
+
+    // Step 1: Hit steamcommunity.com home so Steam issues a canonical sessionid cookie matching steamLoginSecure
+    if let Ok(home_resp) = client
+        .get("https://steamcommunity.com/")
+        .header("Cookie", &cookie_header)
+        .send()
+        .await
+    {
+        for ch in home_resp.headers().get_all(reqwest::header::SET_COOKIE) {
+            if let Ok(cs) = ch.to_str() {
+                if let Some(kv) = cs.split(';').next() {
+                    if let Some(new_sid) = kv.strip_prefix("sessionid=") {
+                        if !new_sid.trim().is_empty() && new_sid.trim() != "deleted" {
+                            active_session_id = new_sid.trim().to_string();
+                            cookie_header = format!("sessionid={}; steamLoginSecure={};", active_session_id, steam_login_secure);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Step 2: Preflight GET on tradeoffer page so Steam validates friendship / trade token / cooldown
     if let Ok(pre_resp) = client
         .get(&referer)
-        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
         .header("Cookie", &cookie_header)
         .send()
         .await

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use eframe::egui::{self, Color32, FontId, RichText, Rounding, ScrollArea, Stroke, Ui, Vec2};
 use crate::data::{Account, AccountStatus, CustomThemeColors, ThemeMode};
@@ -15,11 +16,15 @@ enum DashFilter {
 
 pub struct DashboardView {
     filter: DashFilter,
+    expanded_accounts: HashSet<u64>,
 }
 
 impl DashboardView {
     pub fn new() -> Self {
-        Self { filter: DashFilter::All }
+        Self {
+            filter: DashFilter::All,
+            expanded_accounts: HashSet::new(),
+        }
     }
 
     pub fn draw(
@@ -157,7 +162,10 @@ impl DashboardView {
                     0
                 };
 
+                let is_expanded = self.expanded_accounts.contains(&id);
+
                 ThemeEngine::card_frame(theme_mode, colors).show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
                     ui.horizontal(|ui| {
                         let (st_col, st_txt) = match &status {
                             AccountStatus::Boosting => (Color32::from_rgb(80, 225, 130), strings.status_boosting),
@@ -169,18 +177,31 @@ impl DashboardView {
 
                         ui.vertical(|ui| {
                             ui.horizontal(|ui| {
+                                let arrow = if is_expanded { "▾" } else { "▸" };
                                 if ui
-                                    .link(RichText::new(format!("👤 {}", username)).font(FontId::proportional(13.5)).strong())
-                                    .on_hover_text(strings.btn_edit)
+                                    .link(
+                                        RichText::new(format!("{} 👤 {}", arrow, username))
+                                            .font(FontId::proportional(13.5))
+                                            .strong(),
+                                    )
+                                    .on_hover_text(strings.pick(
+                                        "Click to show/hide boosted games",
+                                        "Kasılan oyunları görmek için tıklayın",
+                                        "Нажмите, чтобы показать игры",
+                                    ))
                                     .clicked()
                                 {
-                                    edit_account_id = Some(id);
+                                    if is_expanded {
+                                        self.expanded_accounts.remove(&id);
+                                    } else {
+                                        self.expanded_accounts.insert(id);
+                                    }
                                 }
                                 ui.label(RichText::new(format!("● {}", st_txt)).font(FontId::proportional(11.5)).color(st_col));
                             });
                             ui.label(
                                 RichText::new(format!(
-                                    "{} {} · \"{}\" · 🃏 {} {}",
+                                    "{} {} · \"{}\" · {} {}",
                                     games.len(),
                                     strings.games_count_unit,
                                     custom_title,
@@ -193,7 +214,6 @@ impl DashboardView {
                         });
 
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            // "..." action menu
                             ui.menu_button("⋯", |ui| {
                                 if ui.button(strings.edit_title_edit).clicked() {
                                     edit_account_id = Some(id);
@@ -221,15 +241,15 @@ impl DashboardView {
                         });
                     });
 
-                    // Parallel games list
-                    if !games.is_empty() {
+                    // Show boosted games when user clicks this account row
+                    if is_expanded && !games.is_empty() {
                         ui.add_space(6.0);
                         for g in &games {
                             egui::Frame::none()
-                                .fill(Color32::from_rgba_unmultiplied(255, 255, 255, 6))
+                                .fill(Color32::from_rgba_unmultiplied(255, 255, 255, 8))
                                 .rounding(Rounding::same(6.0))
                                 .inner_margin(egui::Margin::symmetric(8.0, 4.0))
-                                .stroke(Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 16)))
+                                .stroke(Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 18)))
                                 .show(ui, |ui| {
                                     ui.horizontal(|ui| {
                                         let img_url = format!("https://cdn.cloudflare.steamstatic.com/steam/apps/{}/capsule_sm_120.jpg", g.app_id);

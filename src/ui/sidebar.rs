@@ -295,33 +295,43 @@ impl Sidebar {
 
                 ui.add_space(10.0);
 
-                // Live Boosting / Card Drops Summary Box (narrower, higher up, zero clipping)
+                // Live Boosting / Card Drops Summary Box (narrower, higher contrast text, clean margins)
                 let card_stroke = if *theme_mode == ThemeMode::LiquidGlass {
-                    Stroke::new(1.2_f32, Color32::from_rgba_unmultiplied(235, 245, 255, 105))
+                    Stroke::new(1.25_f32, Color32::from_rgba_unmultiplied(235, 245, 255, 125))
                 } else if *theme_mode == ThemeMode::Light {
-                    Stroke::new(1.0_f32, Color32::from_rgb(210, 218, 230))
+                    Stroke::new(1.0_f32, Color32::from_rgb(200, 210, 224))
                 } else {
-                    Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 28))
+                    Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 36))
                 };
                 let card_fill = if *theme_mode == ThemeMode::Light {
-                    Color32::from_rgb(235, 240, 247)
+                    Color32::from_rgb(232, 238, 246)
                 } else {
-                    Color32::from_rgba_unmultiplied(255, 255, 255, 14)
+                    Color32::from_rgba_unmultiplied(18, 22, 34, 90)
+                };
+                let title_col = if *theme_mode == ThemeMode::Light {
+                    Color32::from_rgb(30, 38, 50)
+                } else {
+                    Color32::from_rgb(210, 224, 242)
+                };
+                let val_col = if *theme_mode == ThemeMode::Light {
+                    Color32::from_rgb(12, 16, 22)
+                } else {
+                    Color32::WHITE
                 };
 
                 ui.horizontal(|ui| {
-                    ui.add_space(8.0);
+                    ui.add_space(10.0);
                     egui::Frame::none()
                         .fill(card_fill)
                         .stroke(card_stroke)
                         .rounding(Rounding::same(12.0))
                         .inner_margin(egui::Margin::same(8.0))
                         .show(ui, |ui| {
-                            ui.set_width((inner_w - 48.0).max(115.0));
+                            ui.set_width((inner_w - 58.0).max(105.0));
                             ui.label(
                                 RichText::new(strings.pick("ACTIVE BOOST / DROPS", "AKTİF KASMA / KART", "АКТИВНЫЙ БУСТ"))
                                     .font(FontId::proportional(9.5))
-                                    .color(muted)
+                                    .color(title_col)
                                     .strong(),
                             );
                             ui.add_space(3.0);
@@ -334,6 +344,7 @@ impl Sidebar {
                                     strings.pick("drops", "kart", "дроп.")
                                 ))
                                 .font(FontId::proportional(12.5))
+                                .color(val_col)
                                 .strong(),
                             );
                             ui.add_space(5.0);

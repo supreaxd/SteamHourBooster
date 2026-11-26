@@ -52,6 +52,7 @@ impl TradeBalanceView {
         &mut self,
         ui: &mut Ui,
         accounts: &mut [Arc<Mutex<Account>>],
+        settings: &mut crate::data::AppSettings,
         colors: &CustomThemeColors,
         theme_mode: ThemeMode,
         strings: &Strings,
@@ -125,7 +126,7 @@ impl TradeBalanceView {
         }
 
         match self.sub_tab {
-            SubTab::Consolidate => self.draw_consolidate(ui, accounts, colors, theme_mode, strings, accent, muted),
+            SubTab::Consolidate => self.draw_consolidate(ui, accounts, settings, colors, theme_mode, strings, accent, muted),
             SubTab::Balance => self.draw_balance(ui, accounts, colors, theme_mode, strings, accent, muted, save_needed),
         }
     }
@@ -134,6 +135,7 @@ impl TradeBalanceView {
         &mut self,
         ui: &mut Ui,
         accounts: &[Arc<Mutex<Account>>],
+        settings: &mut crate::data::AppSettings,
         colors: &CustomThemeColors,
         theme_mode: ThemeMode,
         strings: &Strings,
@@ -144,6 +146,12 @@ impl TradeBalanceView {
             let a = accounts[self.target_account_idx].lock().unwrap();
             (a.username.clone(), a.steam_id)
         };
+
+        // Keep auto-send target synced with selected main account & trade URL
+        if settings.auto_send_drops_to_main {
+            settings.auto_send_main_steam_id = target_sid;
+            settings.auto_send_main_trade_url = self.custom_trade_url.trim().to_string();
+        }
 
         ThemeEngine::card_frame(theme_mode, colors).show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -173,6 +181,23 @@ impl TradeBalanceView {
                     &mut self.cards_only_filter,
                     RichText::new(strings.pick("Trading Cards Only", "Yalnızca Koleksiyon Kartları", "Только карточки")).font(FontId::proportional(11.5)),
                 );
+
+                ui.add_space(12.0);
+                if ui
+                    .checkbox(
+                        &mut settings.auto_send_drops_to_main,
+                        RichText::new(strings.pick(
+                            "Auto-send newly dropped cards to Target Main Account",
+                            "Düşen kartları otomatik olarak Ana Hesaba gönder",
+                            "Авто-отправка выпавших карт на основной аккаунт",
+                        ))
+                        .font(FontId::proportional(11.5)),
+                    )
+                    .changed()
+                {
+                    settings.auto_send_main_steam_id = target_sid;
+                    settings.auto_send_main_trade_url = self.custom_trade_url.trim().to_string();
+                }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let is_ref = self.is_refreshing.load(Ordering::SeqCst);
@@ -345,7 +370,8 @@ impl TradeBalanceView {
             .iter()
             .any(|r| r.status == TradeOfferStatus::PendingConfirmation || r.status == TradeOfferStatus::Sent);
 
-        if self.is_sending.load(Ordering::SeqCst) || has_mobile_conf {
+        // Show Mobile Confirmation info ONLY when trade actually succeeded (not during loading or error)
+        if !self.is_sending.load(Ordering::SeqCst) && has_mobile_conf {
             egui::Frame::none()
                 .fill(Color32::from_rgba_unmultiplied(20, 48, 34, 195))
                 .rounding(Rounding::same(10.0))

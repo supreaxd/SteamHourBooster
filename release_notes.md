@@ -14,7 +14,8 @@ Welcome to **v1.3.0 Major Update** of **SupBooster** (`SupBoost.exe`)! This majo
 
 ### ⚖️ 2. Trade Consolidate Fix, Item Selection & Account Balance
 - **Steam Trade API Preflight & Session Fix:** Fixed `Invalid JSON response from Steam Trade API` by extracting `sessionid` cookies from `settoken`, running a preflight `GET` on the trade offer page with `X-Requested-With: XMLHttpRequest`, and surfacing exact Steam error messages if a session expired or accounts aren't friends.
-- **Per-Item Trade Selection + Mobile Confirmation Box:** Added checkboxes for every tradable item, `Select All` / `Deselect All` controls, clean localized `Consolidate` / `Topla` button naming, and a prominent **Steam Guard Mobile Confirmation** info banner when sending offers.
+- **Per-Item Trade Selection, Auto-Send Cards & Mobile Confirmation Box:** Added checkboxes for every tradable item, `Select All` / `Deselect All` controls, an **Auto-send newly dropped cards to Target Main Account** option, clean localized `Consolidate` / `Topla` button naming, and a **Steam Guard Mobile Confirmation** info banner shown upon successful offer creation.
+- **Account Click-to-Edit & Delete Confirmation:** Removed the pencil button in Accounts so clicking any account card opens it directly, clicking `🗑` shows a confirmation dialog before deleting, and clicking accounts in Dashboard toggles their boosted games.
 - **Live Account Balance & Desktop CSV Export:** Displays live cached inventory value (`$X.XX`), card count, sold net/gross earnings, and boosted hours per account with `Refresh All Values` and direct `SupBooster_Balance.csv` export to Desktop.
 
 ### 🛒 3. Market Pricing Strategies & Steam CM Ping Monitor

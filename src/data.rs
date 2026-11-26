@@ -395,6 +395,12 @@ pub struct AppSettings {
     pub sell_custom_offset: f64,
     #[serde(default)]
     pub telegram_language: Language,
+    #[serde(default)]
+    pub auto_send_drops_to_main: bool,
+    #[serde(default)]
+    pub auto_send_main_steam_id: u64,
+    #[serde(default)]
+    pub auto_send_main_trade_url: String,
 }
 
 fn default_github_repo() -> String {
@@ -483,6 +489,9 @@ impl Default for AppSettings {
             sell_strategy: SellStrategy::Undercut,
             sell_custom_offset: -0.02,
             telegram_language: Language::English,
+            auto_send_drops_to_main: false,
+            auto_send_main_steam_id: 0,
+            auto_send_main_trade_url: String::new(),
         }
     }
 }

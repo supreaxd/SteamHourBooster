@@ -19,10 +19,10 @@ impl ThemeEngine {
             }
             ThemeMode::LiquidGlass => {
                 let mut v = Visuals::dark();
-                let a = (colors.glass_alpha as f32 * 0.12).clamp(8.0, 60.0) as u8;
+                let a = (colors.glass_alpha as f32 * 0.05).clamp(4.0, 28.0) as u8;
                 v.panel_fill = Color32::from_rgba_unmultiplied(colors.surface[0], colors.surface[1], colors.surface[2], a);
-                v.window_fill = Color32::from_rgba_unmultiplied(colors.surface[0], colors.surface[1], colors.surface[2], 110);
-                v.extreme_bg_color = Color32::from_rgba_unmultiplied(8, 10, 16, 70);
+                v.window_fill = Color32::from_rgba_unmultiplied(colors.surface[0], colors.surface[1], colors.surface[2], 80);
+                v.extreme_bg_color = Color32::from_rgba_unmultiplied(8, 10, 16, 48);
                 v
             }
         };
@@ -92,12 +92,12 @@ impl ThemeEngine {
         let (fill, stroke) = match mode {
             ThemeMode::LiquidGlass => {
                 let alpha = if is_sidebar {
-                    (colors.glass_alpha as f32 * 0.16).clamp(12.0, 68.0) as u8
+                    (colors.glass_alpha as f32 * 0.08).clamp(6.0, 34.0) as u8
                 } else {
-                    (colors.glass_alpha as f32 * 0.08).clamp(6.0, 40.0) as u8
+                    (colors.glass_alpha as f32 * 0.04).clamp(4.0, 20.0) as u8
                 };
                 let edge_stroke = if is_sidebar {
-                    Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(235, 245, 255, 70))
+                    Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(235, 245, 255, 85))
                 } else {
                     Stroke::NONE
                 };
@@ -151,11 +151,11 @@ impl ThemeEngine {
     pub fn card_frame(mode: ThemeMode, colors: &CustomThemeColors) -> Frame {
         let (fill, stroke, rounding) = match mode {
             ThemeMode::LiquidGlass => {
-                let a = (colors.glass_alpha as f32 * 0.20).clamp(18.0, 82.0) as u8;
+                let a = (colors.glass_alpha as f32 * 0.11).clamp(10.0, 46.0) as u8;
                 (
                     Color32::from_rgba_unmultiplied(colors.surface[0], colors.surface[1], colors.surface[2], a),
                     // Crisp specular edge refraction border (bright frosted glass rim)
-                    Stroke::new(1.35_f32, Color32::from_rgba_unmultiplied(235, 245, 255, 110)),
+                    Stroke::new(1.35_f32, Color32::from_rgba_unmultiplied(235, 245, 255, 130)),
                     Rounding::same(14.0),
                 )
             }
@@ -249,10 +249,11 @@ impl ThemeEngine {
 pub fn apply_platform_vibrancy(window: &impl raw_window_handle::HasWindowHandle, mode: ThemeMode, colors: &CustomThemeColors) {
     match mode {
         ThemeMode::LiquidGlass => {
-            let a = (colors.glass_alpha as f32 * 0.14).clamp(8.0, 55.0) as u8;
+            // Very light blur (like minimal glass refraction) via DWM apply_blur first, fallback to ultra-light Acrylic
+            let a = (colors.glass_alpha as f32 * 0.06).clamp(4.0, 28.0) as u8;
             let color = Some((colors.surface[0], colors.surface[1], colors.surface[2], a));
-            if window_vibrancy::apply_acrylic(window, color).is_err() {
-                if window_vibrancy::apply_blur(window, color).is_err() {
+            if window_vibrancy::apply_blur(window, color).is_err() {
+                if window_vibrancy::apply_acrylic(window, color).is_err() {
                     let _ = window_vibrancy::apply_mica(window, Some(true));
                 }
             }

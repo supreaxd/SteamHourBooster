@@ -1054,6 +1054,58 @@ async fn process_card_drop(
     );
 
     let global_settings = crate::data::get_global_settings();
+
+    // Update total_cards_earned on runtime account & optionally auto-send newly dropped cards to Main Account
+    let mut source_tok: Option<String> = None;
+    let mut source_proxy: Option<String> = None;
+    for arc in crate::telegram::get_runtime_accounts() {
+        if let Ok(mut a) = arc.lock() {
+            if (my_steam_id > 0 && a.steam_id == my_steam_id) || a.username == username {
+                a.total_cards_earned += 1;
+                source_tok = a.refresh_token.clone();
+                source_proxy = a.proxy.clone();
+                break;
+            }
+        }
+    }
+
+    if global_settings.auto_send_drops_to_main
+        && global_settings.auto_send_main_steam_id != 0
+        && my_steam_id != 0
+        && my_steam_id != global_settings.auto_send_main_steam_id
+        && source_tok.is_some()
+    {
+        let target_sid = global_settings.auto_send_main_steam_id;
+        let trade_url = if global_settings.auto_send_main_trade_url.trim().is_empty() {
+            None
+        } else {
+            Some(global_settings.auto_send_main_trade_url.trim().to_string())
+        };
+        let src_user = username.clone();
+        tokio::spawn(async move {
+            let inv = crate::inventory::fetch_detailed_inventory(my_steam_id, source_proxy.clone()).await;
+            let cards: Vec<_> = inv
+                .into_iter()
+                .filter(|it| it.tradable && it.app_id == 753)
+                .collect();
+            if !cards.is_empty() {
+                let res = crate::inventory::execute_consolidate_trade(
+                    src_user,
+                    format!("Main ({})", target_sid),
+                    target_sid,
+                    trade_url,
+                    cards,
+                    source_tok,
+                    source_proxy,
+                )
+                .await;
+                if matches!(res.status, crate::inventory::TradeOfferStatus::Error) {
+                    logger::log_warn(&format!("📦 [Auto-Send Cards] {}", res.message));
+                }
+            }
+        });
+    }
+
     if global_settings.telegram_notify_cards {
         crate::telegram::send_telegram_alert(&format!(
             "🃏 *[Trading Card Dropped!]* [{}]\n🎮 *Game:* {}\n💎 *Card:* {}\n💰 *Market Price:* {}",

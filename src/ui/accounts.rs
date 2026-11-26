@@ -18,6 +18,7 @@ pub struct AccountsView {
     pub owned_games_filter: String,
     pub is_refreshing_owned_games: Arc<std::sync::atomic::AtomicBool>,
     pub refreshed_owned_games: Arc<Mutex<Option<(u64, Vec<GameEntry>)>>>,
+    pub pending_delete_account: Option<(u64, String)>,
 }
 
 impl AccountsView {
@@ -35,6 +36,7 @@ impl AccountsView {
             owned_games_filter: String::new(),
             is_refreshing_owned_games: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             refreshed_owned_games: Arc::new(Mutex::new(None)),
+            pending_delete_account: None,
         }
     }
 
@@ -583,22 +585,32 @@ impl AccountsView {
                 let hours = runtime_arc.as_ref().map(|ra| ra.lock().unwrap().hours_boosted).unwrap_or(acc.hours_boosted);
 
                 ThemeEngine::card_frame(theme_mode, colors).show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
                     ui.horizontal(|ui| {
-                        // User Avatar + Username
+                        // Clickable Avatar + Username -> opens account editor directly
                         let initials: String = acc.username.chars().take(2).collect::<String>().to_uppercase();
-                        let (rect, _) = ui.allocate_exact_size(Vec2::splat(36.0), egui::Sense::hover());
+                        let (rect, av_resp) = ui.allocate_exact_size(Vec2::splat(36.0), egui::Sense::click());
                         ui.painter().rect_filled(rect, Rounding::same(18.0), Color32::from_rgba_premultiplied(accent.r(), accent.g(), accent.b(), 60));
                         ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, initials, FontId::proportional(13.0), Color32::WHITE);
+                        if av_resp.clicked() {
+                            to_edit_acc = Some(acc.clone());
+                        }
 
                         ui.add_space(8.0);
 
                         ui.vertical(|ui| {
-                            ui.label(RichText::new(&acc.username).font(FontId::proportional(14.0)).strong());
+                            if ui
+                                .link(RichText::new(&acc.username).font(FontId::proportional(14.0)).strong())
+                                .on_hover_text(strings.edit_title_edit)
+                                .clicked()
+                            {
+                                to_edit_acc = Some(acc.clone());
+                            }
                             ui.horizontal(|ui| {
                                 ui.label(RichText::new(format!("⏱ {:.1}h", hours)).font(FontId::proportional(11.0)).color(Color32::from_rgb(120, 140, 160)));
-                                ui.label(RichText::new(format!("• 🎮 {} games", acc.games.len())).font(FontId::proportional(11.0)).color(Color32::from_rgb(120, 140, 160)));
+                                ui.label(RichText::new(format!("• 🎮 {} {}", acc.games.len(), strings.games_count_unit)).font(FontId::proportional(11.0)).color(Color32::from_rgb(120, 140, 160)));
                                 if acc.identity_secret.is_some() {
-                                    ui.label(RichText::new("• 📱 2FA Ready").font(FontId::proportional(10.5)).color(Color32::from_rgb(80, 200, 120)));
+                                    ui.label(RichText::new("• 2FA Ready").font(FontId::proportional(10.5)).color(Color32::from_rgb(80, 200, 120)));
                                 }
                             });
                         });
@@ -607,32 +619,28 @@ impl AccountsView {
 
                         // Status Badge with high contrast border and readable text
                         let (status_text, border_color, text_color) = match &status {
-                            AccountStatus::Boosting => ("🟢 Boosting", Color32::from_rgb(46, 204, 113), Color32::from_rgb(80, 240, 140)),
-                            AccountStatus::Connecting => ("🟡 Connecting...", Color32::from_rgb(255, 190, 60), Color32::from_rgb(255, 215, 100)),
-                            AccountStatus::AwaitingSteamGuard { .. } => ("🛡️ Guard Code Needed", Color32::from_rgb(255, 120, 60), Color32::from_rgb(255, 160, 100)),
-                            AccountStatus::PausedForGame { .. } => ("⏸️ In-Game Paused", Color32::from_rgb(255, 200, 70), Color32::from_rgb(255, 220, 120)),
-                            AccountStatus::Reconnecting { .. } => ("🔄 Reconnecting...", Color32::from_rgb(120, 180, 255), Color32::from_rgb(160, 210, 255)),
-                            AccountStatus::Error(_e) => ("🔴 Error", Color32::from_rgb(255, 90, 90), Color32::from_rgb(255, 130, 130)),
-                            AccountStatus::Idle => ("⚪ Stopped", Color32::from_rgb(130, 145, 165), Color32::from_rgb(170, 185, 205)),
+                            AccountStatus::Boosting => (strings.status_boosting, Color32::from_rgb(46, 204, 113), Color32::from_rgb(80, 240, 140)),
+                            AccountStatus::Connecting => (strings.status_connecting, Color32::from_rgb(255, 190, 60), Color32::from_rgb(255, 215, 100)),
+                            AccountStatus::AwaitingSteamGuard { .. } => (strings.status_guard_needed, Color32::from_rgb(255, 120, 60), Color32::from_rgb(255, 160, 100)),
+                            AccountStatus::PausedForGame { .. } => (strings.status_paused_game, Color32::from_rgb(255, 200, 70), Color32::from_rgb(255, 220, 120)),
+                            AccountStatus::Reconnecting { .. } => (strings.status_reconnecting, Color32::from_rgb(120, 180, 255), Color32::from_rgb(160, 210, 255)),
+                            AccountStatus::Error(_e) => (strings.status_error, Color32::from_rgb(255, 90, 90), Color32::from_rgb(255, 130, 130)),
+                            AccountStatus::Idle => (strings.status_idle, Color32::from_rgb(130, 145, 165), Color32::from_rgb(170, 185, 205)),
                         };
 
                         egui::Frame::none()
-                            .fill(Color32::from_rgba_unmultiplied(16, 24, 20, 220))
+                            .fill(Color32::from_rgba_unmultiplied(16, 24, 20, 190))
                             .rounding(Rounding::same(12.0))
                             .inner_margin(egui::Margin::symmetric(10.0, 3.5))
                             .stroke(Stroke::new(1.0_f32, border_color))
                             .show(ui, |ui| {
-                                ui.label(RichText::new(status_text).font(FontId::proportional(11.5)).color(text_color).strong());
+                                ui.label(RichText::new(format!("● {}", status_text)).font(FontId::proportional(11.5)).color(text_color).strong());
                             });
 
-                        // Right action buttons
+                        // Right action buttons (Pencil removed; Delete triggers confirmation dialog)
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.button(RichText::new(strings.btn_delete).font(FontId::proportional(12.0))).clicked() {
-                                to_delete_id = Some(acc.id);
-                            }
-
-                            if ui.button(RichText::new(strings.btn_edit).font(FontId::proportional(12.0))).clicked() {
-                                to_edit_acc = Some(acc.clone());
+                                self.pending_delete_account = Some((acc.id, acc.username.clone()));
                             }
 
                             if let Some(ref ra) = runtime_arc {
@@ -667,6 +675,43 @@ impl AccountsView {
                 ui.add_space(3.0);
             }
         });
+
+        // Delete Account Confirmation Modal
+        if let Some((del_id, del_name)) = self.pending_delete_account.clone() {
+            egui::Window::new(strings.pick("⚠️ Confirm Account Removal", "⚠️ Hesap Silme Onayı", "⚠️ Подтвердите удаление"))
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+                .default_width(400.0)
+                .show(ui.ctx(), |ui| {
+                    ui.add_space(6.0);
+                    ui.label(
+                        RichText::new(match strings.lang {
+                            crate::i18n::Language::English => format!("Are you sure you want to delete account '{}'?\nBoosting will stop and saved settings/tokens for this account will be removed.", del_name),
+                            crate::i18n::Language::Turkish => format!("'{}' hesabını silmek istediğinize emin misiniz?\nBoost durdurulacak ve bu hesaba ait kayıtlı ayarlar kalıcı olarak silinecektir.", del_name),
+                            crate::i18n::Language::Russian => format!("Вы уверены, что хотите удалить аккаунт '{}'?\nБуст будет остановлен, а данные удалены.", del_name),
+                        })
+                        .font(FontId::proportional(13.0)),
+                    );
+                    ui.add_space(12.0);
+                    ui.horizontal(|ui| {
+                        if ui
+                            .button(
+                                RichText::new(strings.pick("🗑 Delete Account", "🗑 Hesabı Sil", "🗑 Удалить аккаунт"))
+                                    .color(Color32::from_rgb(255, 110, 110))
+                                    .strong(),
+                            )
+                            .clicked()
+                        {
+                            to_delete_id = Some(del_id);
+                            self.pending_delete_account = None;
+                        }
+                        if ui.button(strings.btn_cancel).clicked() {
+                            self.pending_delete_account = None;
+                        }
+                    });
+                });
+        }
 
         if let Some(del_id) = to_delete_id {
             if let Some(pos) = runtime_accounts.iter().position(|r| r.lock().unwrap().id == del_id) {

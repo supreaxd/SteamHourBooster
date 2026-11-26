@@ -587,11 +587,14 @@ impl eframe::App for SteamBoosterApp {
                     );
                 }
                 NavTab::TradeBalance => {
+                    let colors_copy = self.config.settings.custom_colors.clone();
+                    let tm_copy = self.config.settings.theme_mode;
                     self.trade_balance_view.draw(
                         ui,
                         &mut self.runtime_accounts,
-                        &self.config.settings.custom_colors,
-                        self.config.settings.theme_mode,
+                        &mut self.config.settings,
+                        &colors_copy,
+                        tm_copy,
                         &strings,
                         &mut trade_save_needed,
                     );
