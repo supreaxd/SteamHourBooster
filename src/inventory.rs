@@ -243,7 +243,7 @@ pub async fn fetch_detailed_inventory(steam_id: u64, proxy_url: Option<String>) 
 
     for (app_id, context_id, label) in endpoints {
         let url = format!(
-            "https://steamcommunity.com/inventory/{}/{}/{}?l=english&count=75",
+            "https://steamcommunity.com/inventory/{}/{}/{}?l=english&count=500",
             steam_id, app_id, context_id
         );
 
@@ -320,7 +320,19 @@ fn parse_inventory_json(json: &serde_json::Value, items: &mut Vec<InventoryItem>
         let instanceid = asset.get("instanceid").and_then(|i| i.as_str()).unwrap_or("0");
         let amount = asset.get("amount").and_then(|a| a.as_str()).and_then(|a| a.parse::<u32>().ok()).unwrap_or(1);
 
-        if let Some(desc) = descriptions.iter().find(|d| d.get("classid").and_then(|c| c.as_str()) == Some(classid)) {
+        let desc_opt = descriptions
+            .iter()
+            .find(|d| {
+                d.get("classid").and_then(|c| c.as_str()) == Some(classid)
+                    && d.get("instanceid").and_then(|i| i.as_str()).unwrap_or("0") == instanceid
+            })
+            .or_else(|| {
+                descriptions
+                    .iter()
+                    .find(|d| d.get("classid").and_then(|c| c.as_str()) == Some(classid))
+            });
+
+        if let Some(desc) = desc_opt {
             let name = desc.get("name").and_then(|n| n.as_str()).unwrap_or("Unknown").to_string();
             let market_hash_name = desc.get("market_hash_name").and_then(|n| n.as_str()).unwrap_or(&name).to_string();
             let icon_url_suffix = desc.get("icon_url").and_then(|u| u.as_str()).unwrap_or("");
@@ -1174,15 +1186,17 @@ pub async fn execute_consolidate_trade(
     };
 
     if let Some(ref url) = trade_url {
-        if let Some(q_pos) = url.find('?') {
-            for pair in url[q_pos + 1..].split('&') {
+        let clean_url = url.trim().split('#').next().unwrap_or("");
+        if let Some(q_pos) = clean_url.find('?') {
+            for pair in clean_url[q_pos + 1..].split('&') {
                 if let Some((k, v)) = pair.split_once('=') {
+                    let val = v.trim();
                     if k == "partner" {
-                        if let Ok(p) = v.parse::<u64>() {
+                        if let Ok(p) = val.parse::<u64>() {
                             partner_account_id = p;
                         }
                     } else if k == "token" {
-                        trade_token = v.to_string();
+                        trade_token = val.to_string();
                     }
                 }
             }
@@ -1246,11 +1260,43 @@ pub async fn execute_consolidate_trade(
     };
 
     let mut active_session_id = session_id;
-    let mut cookie_header = format!("sessionid={}; steamLoginSecure={};", active_session_id, steam_login_secure);
+    let mut cookies: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    cookies.insert("steamLoginSecure".to_string(), steam_login_secure.clone());
 
+    let build_cookie_header = |map: &std::collections::BTreeMap<String, String>| -> String {
+        map.iter()
+            .map(|(k, v)| format!("{}={}", k, v))
+            .collect::<Vec<_>>()
+            .join("; ")
+    };
+
+    let absorb_set_cookies = |headers: &reqwest::header::HeaderMap,
+                              map: &mut std::collections::BTreeMap<String, String>,
+                              sid: &mut String| {
+        for ch in headers.get_all(reqwest::header::SET_COOKIE) {
+            if let Ok(cs) = ch.to_str() {
+                if let Some(kv) = cs.split(';').next() {
+                    if let Some((k, v)) = kv.split_once('=') {
+                        let key = k.trim();
+                        let val = v.trim();
+                        if val.is_empty() || val == "deleted" {
+                            map.remove(key);
+                        } else {
+                            map.insert(key.to_string(), val.to_string());
+                            if key == "sessionid" {
+                                *sid = val.to_string();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    // Keep cookie_store(false) so manual Cookie header never duplicates/conflicts with reqwest's internal jar
     let mut client_builder = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
-        .cookie_store(true)
+        .cookie_store(false)
         .timeout(Duration::from_secs(15));
     if let Some(ref p) = proxy_url.as_deref().filter(|s| !s.trim().is_empty()) {
         if let Ok(prx) = reqwest::Proxy::all(*p) {
@@ -1259,46 +1305,27 @@ pub async fn execute_consolidate_trade(
     }
     let client = client_builder.build().unwrap_or_default();
 
-    // Step 1: Hit steamcommunity.com home so Steam issues a canonical sessionid cookie matching steamLoginSecure
+    // Step 1: Hit steamcommunity.com home WITHOUT sessionid first so Steam issues a canonical sessionid matching steamLoginSecure
     if let Ok(home_resp) = client
         .get("https://steamcommunity.com/")
-        .header("Cookie", &cookie_header)
+        .header("Cookie", build_cookie_header(&cookies))
         .send()
         .await
     {
-        for ch in home_resp.headers().get_all(reqwest::header::SET_COOKIE) {
-            if let Ok(cs) = ch.to_str() {
-                if let Some(kv) = cs.split(';').next() {
-                    if let Some(new_sid) = kv.strip_prefix("sessionid=") {
-                        if !new_sid.trim().is_empty() && new_sid.trim() != "deleted" {
-                            active_session_id = new_sid.trim().to_string();
-                            cookie_header = format!("sessionid={}; steamLoginSecure={};", active_session_id, steam_login_secure);
-                        }
-                    }
-                }
-            }
-        }
+        absorb_set_cookies(home_resp.headers(), &mut cookies, &mut active_session_id);
     }
+    cookies
+        .entry("sessionid".to_string())
+        .or_insert_with(|| active_session_id.clone());
 
     // Step 2: Preflight GET on tradeoffer page so Steam validates friendship / trade token / cooldown
     if let Ok(pre_resp) = client
         .get(&referer)
-        .header("Cookie", &cookie_header)
+        .header("Cookie", build_cookie_header(&cookies))
         .send()
         .await
     {
-        for cookie_header_val in pre_resp.headers().get_all(reqwest::header::SET_COOKIE) {
-            if let Ok(cs) = cookie_header_val.to_str() {
-                if let Some(kv) = cs.split(';').next() {
-                    if let Some(new_sid) = kv.strip_prefix("sessionid=") {
-                        if !new_sid.trim().is_empty() && new_sid.trim() != "deleted" {
-                            active_session_id = new_sid.trim().to_string();
-                            cookie_header = format!("sessionid={}; steamLoginSecure={};", active_session_id, steam_login_secure);
-                        }
-                    }
-                }
-            }
-        }
+        absorb_set_cookies(pre_resp.headers(), &mut cookies, &mut active_session_id);
         if let Ok(html) = pre_resp.text().await {
             if html.contains("g_steamID = false") || html.contains("steamcommunity.com/login/home") {
                 return ConsolidateTradeResult {
@@ -1331,6 +1358,8 @@ pub async fn execute_consolidate_trade(
             }
         }
     }
+    cookies.insert("sessionid".to_string(), active_session_id.clone());
+    let cookie_header = build_cookie_header(&cookies);
 
     let form_body = format!(
         "sessionid={}&serverid=1&partner={}&tradeoffermessage={}&json_tradeoffer={}&captcha=&trade_offer_create_params={}",
@@ -1367,6 +1396,13 @@ pub async fn execute_consolidate_trade(
                     } else {
                         TradeOfferStatus::Sent
                     };
+                    // Remove offered assets from cached inventories so they cannot be re-sent as stale assets
+                    let sent_ids: std::collections::HashSet<&str> = items.iter().map(|it| it.asset_id.as_str()).collect();
+                    if let Ok(mut cache) = get_detailed_cache().lock() {
+                        for inv in cache.values_mut() {
+                            inv.retain(|it| !sent_ids.contains(it.asset_id.as_str()));
+                        }
+                    }
                     logger::log_success(&format!(
                         "📦 [Consolidate] Trade Offer #{} created ({} -> {}, {} items)",
                         offer_id, source_username, target_username, item_count
@@ -1384,11 +1420,22 @@ pub async fn execute_consolidate_trade(
                         },
                     }
                 } else {
-                    let err_msg = json
+                    let raw_err = json
                         .get("strError")
                         .and_then(|v| v.as_str())
                         .unwrap_or("Trade offer rejected by Steam")
                         .to_string();
+                    let err_msg = if raw_err.contains("(15)") {
+                        if trade_token.is_empty() {
+                            format!("{} — Steam AccessDenied: accounts may not be friends (paste Target Trade URL with token), trade-restricted, or too many pending offers.", raw_err)
+                        } else {
+                            format!("{} — Steam AccessDenied: invalid/expired Trade URL token, trade restriction/hold, or pending offer limit.", raw_err)
+                        }
+                    } else if raw_err.contains("(11)") {
+                        format!("{} — Steam InvalidState: item may be trade-locked/unavailable or already in a pending offer (refresh inventories & check Steam Trades).", raw_err)
+                    } else {
+                        raw_err
+                    };
                     logger::log_error(&format!("📦 [Consolidate] Failed ({} -> {}): {}", source_username, target_username, err_msg));
                     ConsolidateTradeResult {
                         source_username,

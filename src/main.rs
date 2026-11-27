@@ -30,8 +30,9 @@ fn main() -> eframe::Result<()> {
 
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("SupBooster")
-        .with_inner_size([1240.0, 760.0])
-        .with_min_inner_size([1120.0, 660.0])
+        .with_inner_size([1250.0, 770.0])
+        .with_min_inner_size([890.0, 550.0])
+        .with_decorations(false)
         .with_transparent(true);
 
     if let Ok(icon) = eframe::icon_data::from_png_bytes(APP_ICON_PNG) {

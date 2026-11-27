@@ -164,15 +164,23 @@ impl DashboardView {
 
                 let is_expanded = self.expanded_accounts.contains(&id);
 
-                ThemeEngine::card_frame(theme_mode, colors).show(ui, |ui| {
+                let _card_resp = ThemeEngine::card_frame(theme_mode, colors).show(ui, |ui| {
                     ui.set_min_width(ui.available_width());
                     ui.horizontal(|ui| {
                         let (st_col, st_txt) = match &status {
-                            AccountStatus::Boosting => (Color32::from_rgb(80, 225, 130), strings.status_boosting),
-                            AccountStatus::Connecting => (Color32::from_rgb(255, 195, 65), strings.status_connecting),
-                            AccountStatus::AwaitingSteamGuard { .. } => (Color32::from_rgb(255, 165, 50), strings.status_guard_needed),
-                            AccountStatus::Error(_) => (Color32::from_rgb(255, 100, 100), strings.status_error),
-                            _ => (muted, strings.status_idle),
+                            AccountStatus::Boosting => (Color32::from_rgb(80, 225, 130), strings.status_boosting.to_string()),
+                            AccountStatus::PausedForGame { app_name, .. } => (
+                                Color32::from_rgb(255, 145, 35),
+                                format!("{} ({})", strings.status_paused_game, app_name),
+                            ),
+                            AccountStatus::Reconnecting { attempt, retry_in_secs } => (
+                                Color32::from_rgb(255, 200, 60),
+                                format!("{} (#{} · {}s)", strings.status_reconnecting, attempt, retry_in_secs),
+                            ),
+                            AccountStatus::Connecting => (Color32::from_rgb(255, 200, 60), strings.status_connecting.to_string()),
+                            AccountStatus::AwaitingSteamGuard { .. } => (Color32::from_rgb(255, 115, 50), strings.status_guard_needed.to_string()),
+                            AccountStatus::Error(_) => (Color32::from_rgb(255, 85, 85), strings.status_error.to_string()),
+                            AccountStatus::Idle => (muted, strings.status_idle.to_string()),
                         };
 
                         ui.vertical(|ui| {

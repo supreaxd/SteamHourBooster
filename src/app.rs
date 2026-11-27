@@ -9,6 +9,7 @@ use crate::logger;
 use crate::steam;
 use crate::ui::accounts::AccountsView;
 use crate::ui::active_drops::ActiveDropsView;
+use crate::ui::backdrop::DesktopBackdrop;
 use crate::ui::dashboard::DashboardView;
 use crate::ui::inventory::InventoryView;
 use crate::ui::logs::LogsView;
@@ -55,10 +56,17 @@ pub struct SteamBoosterApp {
     // Updater
     updater: crate::updater::UpdateManager,
 
+    // Smooth Liquid Glass Backdrop
+    backdrop: DesktopBackdrop,
+
     // State Tracking
     last_theme_mode: Option<ThemeMode>,
     last_glass_alpha: u8,
+    last_blur_key: i32,
     last_surface_rgb: [u8; 3],
+    last_text_rgb: [u8; 3],
+    last_accent_rgb: [u8; 3],
+    resize_hook_installed: bool,
     last_auto_switch_check: Instant,
     sidebar_accounts_expanded: bool,
 }
@@ -127,9 +135,14 @@ impl SteamBoosterApp {
             global_search: String::new(),
             tray_mgr,
             updater,
+            backdrop: DesktopBackdrop::new(),
             last_theme_mode: None,
             last_glass_alpha: 0,
+            last_blur_key: -1,
             last_surface_rgb: [0, 0, 0],
+            last_text_rgb: [0, 0, 0],
+            last_accent_rgb: [0, 0, 0],
+            resize_hook_installed: false,
             last_auto_switch_check: Instant::now(),
             sidebar_accounts_expanded: true,
         }
@@ -362,7 +375,7 @@ impl SteamBoosterApp {
 
 impl eframe::App for SteamBoosterApp {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        if matches!(self.config.settings.theme_mode, ThemeMode::Transparent | ThemeMode::LiquidGlass) {
+        if matches!(self.config.settings.theme_mode, ThemeMode::Blur | ThemeMode::LiquidGlass) {
             [0.0, 0.0, 0.0, 0.0]
         } else {
             let s = self.config.settings.custom_colors.surface;
@@ -371,21 +384,94 @@ impl eframe::App for SteamBoosterApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        // Apply theme and custom colors to egui
-        ThemeEngine::apply_theme(ctx, self.config.settings.theme_mode, &self.config.settings.custom_colors);
+        #[cfg(target_os = "windows")]
+        let hwnd_opt = {
+            use raw_window_handle::HasWindowHandle;
+            frame.window_handle().ok().and_then(|h| match h.as_raw() {
+                raw_window_handle::RawWindowHandle::Win32(w) => Some(w.hwnd.get() as isize),
+                _ => None,
+            })
+        };
+        #[cfg(not(target_os = "windows"))]
+        let hwnd_opt: Option<isize> = None;
+
+        #[cfg(target_os = "windows")]
+        if !self.resize_hook_installed {
+            if let Some(hwnd) = hwnd_opt {
+                crate::ui::theme::install_borderless_resize_subclass(hwnd);
+                self.resize_hook_installed = true;
+            }
+        }
+
+        // Apply theme & platform vibrancy ONLY when theme settings actually change (huge perf win)
+        let blur_key = (self.config.settings.custom_colors.blur_level.clamp(0.0, 10.0) * 10.0).round() as i32;
         if self.last_theme_mode != Some(self.config.settings.theme_mode)
             || self.last_glass_alpha != self.config.settings.custom_colors.glass_alpha
+            || self.last_blur_key != blur_key
             || self.last_surface_rgb != self.config.settings.custom_colors.surface
+            || self.last_text_rgb != self.config.settings.custom_colors.text
+            || self.last_accent_rgb != self.config.settings.custom_colors.accent
         {
+            ThemeEngine::apply_theme(ctx, self.config.settings.theme_mode, &self.config.settings.custom_colors);
             self.last_theme_mode = Some(self.config.settings.theme_mode);
             self.last_glass_alpha = self.config.settings.custom_colors.glass_alpha;
+            self.last_blur_key = blur_key;
             self.last_surface_rgb = self.config.settings.custom_colors.surface;
+            self.last_text_rgb = self.config.settings.custom_colors.text;
+            self.last_accent_rgb = self.config.settings.custom_colors.accent;
             #[cfg(target_os = "windows")]
             apply_platform_vibrancy(frame, self.config.settings.theme_mode, &self.config.settings.custom_colors);
         }
 
         // Apply UI scale factor
         ctx.set_pixels_per_point(self.config.settings.ui_scale.clamp(0.8, 2.0));
+
+        // Draw continuous variable-blur Liquid Glass backdrop before panels
+        if self.config.settings.theme_mode == ThemeMode::LiquidGlass {
+            self.backdrop.draw(ctx, hwnd_opt, &self.config.settings.custom_colors);
+        }
+
+        // Fallback 8-direction resize edges (non-Windows or backup); skip TopBar button area
+        let is_maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+        if !is_maximized {
+            let sr = ctx.screen_rect();
+            if let Some(pos) = ctx.input(|i| i.pointer.hover_pos()) {
+                let in_win_btns = pos.y >= sr.top() + 8.0 && pos.y <= sr.top() + 40.0 && pos.x >= sr.right() - 110.0 && pos.x <= sr.right() - 8.0;
+                if !in_win_btns {
+                    let m = 7.0;
+                    let c = 14.0;
+                    let left = pos.x <= sr.left() + m;
+                    let right = pos.x >= sr.right() - m;
+                    let top = pos.y <= sr.top() + m;
+                    let bottom = pos.y >= sr.bottom() - m;
+                    let dir_opt = if (left && pos.y <= sr.top() + c) || (top && pos.x <= sr.left() + c) {
+                        Some((egui::ResizeDirection::NorthWest, egui::CursorIcon::ResizeNwSe))
+                    } else if (right && pos.y <= sr.top() + c) || (top && pos.x >= sr.right() - c) {
+                        Some((egui::ResizeDirection::NorthEast, egui::CursorIcon::ResizeNeSw))
+                    } else if (left && pos.y >= sr.bottom() - c) || (bottom && pos.x <= sr.left() + c) {
+                        Some((egui::ResizeDirection::SouthWest, egui::CursorIcon::ResizeNeSw))
+                    } else if (right && pos.y >= sr.bottom() - c) || (bottom && pos.x >= sr.right() - c) {
+                        Some((egui::ResizeDirection::SouthEast, egui::CursorIcon::ResizeNwSe))
+                    } else if left {
+                        Some((egui::ResizeDirection::West, egui::CursorIcon::ResizeHorizontal))
+                    } else if right {
+                        Some((egui::ResizeDirection::East, egui::CursorIcon::ResizeHorizontal))
+                    } else if top {
+                        Some((egui::ResizeDirection::North, egui::CursorIcon::ResizeVertical))
+                    } else if bottom {
+                        Some((egui::ResizeDirection::South, egui::CursorIcon::ResizeVertical))
+                    } else {
+                        None
+                    };
+                    if let Some((dir, cursor)) = dir_opt {
+                        ctx.set_cursor_icon(cursor);
+                        if ctx.input(|i| i.pointer.primary_pressed()) {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::BeginResize(dir));
+                        }
+                    }
+                }
+            }
+        }
 
         let strings = get_strings(self.config.settings.language);
 
@@ -430,18 +516,21 @@ impl eframe::App for SteamBoosterApp {
             }
         }
 
-        // ─── 1. TOP TOOLBAR (~48px) ───
+        // ─── 1. TOP TOOLBAR (~53px incl. +5px outer frame clearance) ───
         let prev_settings_json = serde_json::to_string(&self.config.settings).ok();
 
-        egui::TopBottomPanel::top("top_toolbar")
-            .exact_height(48.0)
+        let mut top_frame = ThemeEngine::panel_frame(self.config.settings.theme_mode, &self.config.settings.custom_colors, true);
+        top_frame.inner_margin = egui::Margin { left: 11.0, right: 11.0, top: 11.0, bottom: 5.0 };
+        let _top_resp = egui::TopBottomPanel::top("top_toolbar")
+            .exact_height(54.0)
             .show_separator_line(false)
-            .frame(ThemeEngine::panel_frame(self.config.settings.theme_mode, &self.config.settings.custom_colors, false))
+            .frame(top_frame)
             .show(ctx, |ui| {
                 match TopBar::draw(
                     ui,
                     &self.config.settings.custom_colors,
                     self.config.settings.theme_mode,
+                    is_maximized,
                     &strings,
                 ) {
                     TopBarAction::QuickAdd => {
@@ -470,15 +559,26 @@ impl eframe::App for SteamBoosterApp {
                         self.qr_auth.start();
                         self.show_qr_modal = true;
                     }
+                    TopBarAction::Minimize => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                    }
+                    TopBarAction::ToggleMaximize => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!is_maximized));
+                    }
+                    TopBarAction::CloseWindow => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
                     TopBarAction::None => {}
                 }
             });
 
-        // ─── 1b. BOTTOM STATUS BAR (~28px) ───
-        egui::TopBottomPanel::bottom("bottom_status_bar")
-            .exact_height(28.0)
+        // ─── 1b. BOTTOM STATUS BAR (~34px incl. +5px outer frame clearance) ───
+        let mut bottom_frame = ThemeEngine::panel_frame(self.config.settings.theme_mode, &self.config.settings.custom_colors, true);
+        bottom_frame.inner_margin = egui::Margin { left: 11.0, right: 11.0, top: 4.0, bottom: 11.0 };
+        let _bottom_resp = egui::TopBottomPanel::bottom("bottom_status_bar")
+            .exact_height(34.0)
             .show_separator_line(false)
-            .frame(ThemeEngine::panel_frame(self.config.settings.theme_mode, &self.config.settings.custom_colors, false))
+            .frame(bottom_frame)
             .show(ctx, |ui| {
                 StatusBar::draw(
                     ui,
@@ -490,12 +590,14 @@ impl eframe::App for SteamBoosterApp {
                 );
             });
 
-        // ─── 2. LEFT SIDEBAR (~236px width, dark glass panel) ───
-        egui::SidePanel::left("left_sidebar")
-            .exact_width(236.0)
+        // ─── 2. LEFT SIDEBAR (~241px width incl. +5px left clearance) ───
+        let mut sidebar_frame = ThemeEngine::panel_frame(self.config.settings.theme_mode, &self.config.settings.custom_colors, true);
+        sidebar_frame.inner_margin = egui::Margin { left: 11.0, right: 6.0, top: 6.0, bottom: 6.0 };
+        let _sidebar_resp = egui::SidePanel::left("left_sidebar")
+            .exact_width(241.0)
             .resizable(false)
             .show_separator_line(false)
-            .frame(ThemeEngine::panel_frame(self.config.settings.theme_mode, &self.config.settings.custom_colors, true))
+            .frame(sidebar_frame)
             .show(ctx, |ui| {
                 let selected_id = self.accounts_view.editing_account.as_ref().map(|a| a.id);
                 match Sidebar::draw(
@@ -530,6 +632,10 @@ impl eframe::App for SteamBoosterApp {
                         self.active_tab = NavTab::Accounts;
                     }
                     SidebarAction::ThemeToggled => {
+                        self.last_theme_mode = Some(self.config.settings.theme_mode);
+                        self.last_glass_alpha = self.config.settings.custom_colors.glass_alpha;
+                        self.last_blur_key = (self.config.settings.custom_colors.blur_level.clamp(0.0, 10.0) * 10.0).round() as i32;
+                        self.last_surface_rgb = self.config.settings.custom_colors.surface;
                         #[cfg(target_os = "windows")]
                         apply_platform_vibrancy(frame, self.config.settings.theme_mode, &self.config.settings.custom_colors);
                     }
@@ -540,8 +646,10 @@ impl eframe::App for SteamBoosterApp {
         // ─── 3. CENTRAL PANEL (Active Tab Router) ───
         let mut trade_save_needed = false;
 
+        let mut central_frame = ThemeEngine::panel_frame(self.config.settings.theme_mode, &self.config.settings.custom_colors, false);
+        central_frame.inner_margin = egui::Margin { left: 6.0, right: 11.0, top: 6.0, bottom: 6.0 };
         egui::CentralPanel::default()
-            .frame(ThemeEngine::panel_frame(self.config.settings.theme_mode, &self.config.settings.custom_colors, false))
+            .frame(central_frame)
             .show(ctx, |ui| {
             match self.active_tab {
                 NavTab::Dashboard => {
@@ -715,6 +823,16 @@ impl eframe::App for SteamBoosterApp {
 
         // Steam QR Auth Modal
         self.draw_qr_modal(ctx, &strings);
+
+        // Subtle Liquid Glass outer edge sheen only (no stark white box borders)
+        if self.config.settings.theme_mode == ThemeMode::LiquidGlass {
+            let rim_painter = ctx.layer_painter(egui::LayerId::new(
+                egui::Order::Foreground,
+                egui::Id::new("liquid_glass_outer_rim"),
+            ));
+            let sr = ctx.screen_rect().shrink(0.5);
+            ThemeEngine::paint_window_glass_shimmer(&rim_painter, sr);
+        }
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {

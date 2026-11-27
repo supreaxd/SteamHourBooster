@@ -80,7 +80,8 @@ pub enum ThemeMode {
     Dark,
     Light,
     System,
-    Transparent,
+    #[serde(alias = "Transparent")]
+    Blur,
     LiquidGlass,
 }
 
@@ -104,12 +105,18 @@ impl SellStrategy {
     }
 }
 
+fn default_blur_level() -> f32 {
+    6.0
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CustomThemeColors {
     pub surface: [u8; 3],  // Window general / surface tint
     pub text: [u8; 3],     // Text color
     pub accent: [u8; 3],   // Accent color
-    pub glass_alpha: u8,   // 180-220
+    pub glass_alpha: u8,   // 0-255
+    #[serde(default = "default_blur_level")]
+    pub blur_level: f32,   // 0.0 (clear transparent, no blur) .. 10.0 (maximum heavy blur)
 }
 
 impl Default for CustomThemeColors {
@@ -118,7 +125,8 @@ impl Default for CustomThemeColors {
             surface: [22, 26, 36],
             text: [198, 212, 223],
             accent: [26, 159, 255],
-            glass_alpha: 200,
+            glass_alpha: 180,
+            blur_level: 6.0,
         }
     }
 }
@@ -129,7 +137,8 @@ impl CustomThemeColors {
             surface: [245, 247, 250],
             text: [25, 30, 36],
             accent: [26, 140, 240],
-            glass_alpha: 220,
+            glass_alpha: 200,
+            blur_level: 6.0,
         }
     }
 

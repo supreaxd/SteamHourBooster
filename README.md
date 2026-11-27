@@ -1,15 +1,15 @@
-# ⚡ SupBooster v1.3.0 (SteamHourBooster)
+# ⚡ SupBooster v1.4.0 (SteamHourBooster)
 
 > **Languages / Diller / Языки:** **English (Main)** · [🇹🇷 Türkçe](README.tr.md) · [🇷🇺 Русский](README.ru.md)
 
-A lightweight, feature-rich multi-account Steam hour booster, trading card idle manager, inventory seller, and trade consolidator with a modern **Prism UI & Liquid Glass** desktop interface built in **100% Rust** (`eframe` / `egui`, `window-vibrancy`, `steam-vent`).
+A lightweight, feature-rich multi-account Steam hour booster, trading card idle manager, inventory seller, and trade consolidator with a modern **Prism UI & Live Liquid Glass** desktop interface built in **100% Rust** (`eframe` / `egui`, `window-vibrancy`, `steam-vent`).
 
 ---
 
-## ✨ Key Features (v1.3.0 Major Update)
+## ✨ Key Features (v1.4.0)
 
-- **Prism UI & Liquid Glass Engine**: 5 theme modes (**Dark**, **Light**, **System**, **Transparent Acrylic**, and **Liquid Glass** with specular frosted-glass edge refraction), customizable RGB/RGBA tint, text, and accent pickers, plus an independent Glass Opacity slider.
-- **Multi-Account & Unlimited Parallel Boosting**: Expandable sidebar `ACCOUNTS` list with direct per-account quick access, unlimited parallel game boosting, and a live `Steam CM Ping & Connection Quality` monitor in the bottom status bar.
+- **Live Behind-Window Liquid Glass & Blur Engine**: 5 theme modes (**Dark**, **Light**, **System**, **Blur**, and **Liquid Glass** with live `PrintWindow` behind-window blurring), smooth 0.0–10.0 Blur Intensity slider (default 6.0), symmetric 4-edge optical glass refraction, native 8-way borderless resizing, customizable Glass Opacity, and RGB color pickers.
+- **Multi-Account, In-Game Detection & Waiting Fallback**: Expandable sidebar `ACCOUNTS` list, unlimited parallel game boosting, automatic **In-Game (orange)** pause/resume via `CMsgClientPlayingSessionState`, resilient `Waiting / Reconnecting` backoff on server drops, AFK auto-responder (duplicate-free), and live **Steam CM Ping & Connection Quality** monitor.
 - **Active Drops & Auto-Switch**: Scans Steam badge data to list games with remaining trading card drops (`remaining_cards > 0`), allows one-click queueing, and automatically switches to the next eligible game when drops hit `0`.
 - **Inventory & Bulk Market Seller (4 Pricing Strategies)**: Groups cards & items by game with live Steam Community Market valuations and 15% fee breakdown. Supports **Undercut (-$0.01)**, **Instant Sell**, **Market / Median Price**, and **Custom Offset**, plus mobile confirmation prompts.
 - **Trade Consolidate & Account Balance**: Send Steam Trade Offers from selected alt accounts to your main account with item selection checkboxes, Select All / Deselect All, preflight session validation, and Mobile Confirmation notification banner. Track per-account inventory value, cards earned, net/gross revenue, boosted hours, and export directly to `SupBooster_Balance.csv` on Desktop.
@@ -41,10 +41,11 @@ All credentials and session tokens are stored locally and encrypted with Windows
 
 # 🇹🇷 Türkçe Özet
 
-**SupBooster v1.3.0**, **Rust** ile geliştirilmiş modern **Prism UI & Liquid Glass** arayüzlü çoklu hesap Steam saat kasma, kart düşürme, toplu pazar satış ve takas birleştirme aracıdır.
+**SupBooster v1.4.0**, **Rust** ile geliştirilmiş modern **Prism UI & Canlı Liquid Glass** arayüzlü çoklu hesap Steam saat kasma, kart düşürme, toplu pazar satış ve takas birleştirme aracıdır.
 
-- **Liquid Glass & Şeffaf UI:** Kenarları ışık kıran tam şeffaf `Liquid Glass` teması, `Acrylic` şeffaflık, ayarlanabilir cam opaklığı ve yüksek kontrastlı Aydınlık/Koyu tema.
-- **Takas & Bilanço (`Topla` / `Hesap Bilançosu`):** Alt hesaplardaki kartları ve takaslanabilir öğeleri tek tek seçip (`Tümünü Seç` destekli) ana hesaba aktarma, telefon mobil onay bilgilendirme kutusu, canlı envanter değeri ve Masaüstüne doğrudan `CSV` dışa aktarma.
+- **Canlı Liquid Glass & Blur Motoru:** Arkadaki pencereleri canlı blurlayan `Liquid Glass` ve `Blur` modları (`0.0–10.0` arası hassas slider), tüm 4 kenarda eşit optik cam bükülmesi, 8 yönlü kenarsız pencere boyutlandırma ve yüksek kontrastlı Aydınlık/Koyu tema.
+- **Oyunda Algılama, Waiting Modu & AFK Düzeltmesi:** Hesapta oyun açıkken turuncu ikonla otomatik duraklatma, bağlantı kesintilerinde `Waiting` bekleme modu ve çiftsiz AFK otomatik yanıt.
+- **Takas & Bilanço (`Topla` / `Hesap Bilançosu`):** `(classid, instanceid)` düzeltmeli envanter, tek tek ürün seçip (`Tümünü Seç` destekli) ana hesaba aktarma, telefon mobil onay bilgilendirme kutusu, canlı envanter değeri ve Masaüstüne doğrudan `CSV` dışa aktarma.
 - **Pazar Fiyat Stratejileri:** `Undercut (-$0.01)`, `Instant Sell`, `Pazar Fiyatı` ve `Özel Ofset` ile gerçek fiyat hesaplamalı toplu satış.
 - **Telegram Botu & Canlı Loglar:** `/lang` ile tek dil seçimi, `/addaccount <kullanıcı> | <şifre>`, inline butonlar ve en alta akan ayrı Loglar sekmesi.
 
@@ -52,9 +53,10 @@ All credentials and session tokens are stored locally and encrypted with Windows
 
 # 🇷🇺 Краткое описание (Русский)
 
-**SupBooster v1.3.0** — быстрое десктоп-приложение на **Rust** с интерфейсом **Prism UI & Liquid Glass** для одновременного буста часов Steam, фарма коллекционных карточек, массовой продажи на Торговой площадке и сбора предметов на основной аккаунт.
+**SupBooster v1.4.0** — быстрое десктоп-приложение на **Rust** с интерфейсом **Prism UI & Liquid Glass** для одновременного буста часов Steam, фарма коллекционных карточек, массовой продажи на Торговой площадке и сбора предметов на основной аккаунт.
 
-- **Liquid Glass и темы:** Полностью прозрачный режим `Liquid Glass` с преломляющими границами, `Acrylic`, ползунок прозрачности стекла и контрастная Светлая тема.
-- **Обмен и Баланс:** Сбор выбранных предметов с твинков на основу (`Выбрать все`), уведомление о подтверждении в Steam Mobile, оценка инвентаря и экспорт `CSV` на Рабочий стол.
+- **Живой Liquid Glass и Blur:** Размытие реальных окон позади приложения (`Blur` / `Liquid Glass`, ползунок `0.0–10.0`), симметричное 26px преломление на всех 4 сторонах и изменение размера окна за края.
+- **Статус «В игре», режим Waiting и AFK:** Оранжевый индикатор при запущенной игре на аккаунте, автоповтор при сбое сети и корректные одиночные ответы AFK.
+- **Обмен и Баланс:** Точное сопоставление `(classid, instanceid)`, сбор выбранных предметов с твинков на основу (`Выбрать все`), уведомление о подтверждении в Steam Mobile, оценка инвентаря и экспорт `CSV` на Рабочий стол.
 - **4 стратегии цены:** `Undercut (-$0.01)`, `Instant Sell`, `Рыночная цена` и `Свой сдвиг`.
 - **Telegram-бот и Логи:** Команды `/lang`, `/addaccount <логин> | <пароль>`, inline-кнопки и отдельная вкладка логов с автопрокруткой вниз.

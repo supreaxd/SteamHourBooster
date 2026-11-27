@@ -584,14 +584,23 @@ impl AccountsView {
                 let status = runtime_arc.as_ref().map(|ra| ra.lock().unwrap().status.clone()).unwrap_or(acc.status.clone());
                 let hours = runtime_arc.as_ref().map(|ra| ra.lock().unwrap().hours_boosted).unwrap_or(acc.hours_boosted);
 
-                ThemeEngine::card_frame(theme_mode, colors).show(ui, |ui| {
+                let _card_resp = ThemeEngine::card_frame(theme_mode, colors).show(ui, |ui| {
                     ui.set_min_width(ui.available_width());
                     ui.horizontal(|ui| {
-                        // Clickable Avatar + Username -> opens account editor directly
+                        // Clickable Avatar + Status Dot + Username -> opens account editor directly
                         let initials: String = acc.username.chars().take(2).collect::<String>().to_uppercase();
                         let (rect, av_resp) = ui.allocate_exact_size(Vec2::splat(36.0), egui::Sense::click());
                         ui.painter().rect_filled(rect, Rounding::same(18.0), Color32::from_rgba_premultiplied(accent.r(), accent.g(), accent.b(), 60));
                         ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, initials, FontId::proportional(13.0), Color32::WHITE);
+                        let avatar_dot = match &status {
+                            AccountStatus::Boosting => Color32::from_rgb(80, 225, 130),
+                            AccountStatus::PausedForGame { .. } => Color32::from_rgb(255, 145, 35),
+                            AccountStatus::Connecting | AccountStatus::Reconnecting { .. } => Color32::from_rgb(255, 200, 60),
+                            AccountStatus::AwaitingSteamGuard { .. } => Color32::from_rgb(255, 115, 50),
+                            AccountStatus::Error(_) => Color32::from_rgb(255, 85, 85),
+                            AccountStatus::Idle => Color32::from_rgb(130, 145, 165),
+                        };
+                        ui.painter().circle_filled(egui::pos2(rect.max.x - 4.0, rect.max.y - 4.0), 5.0, avatar_dot);
                         if av_resp.clicked() {
                             to_edit_acc = Some(acc.clone());
                         }
@@ -619,13 +628,13 @@ impl AccountsView {
 
                         // Status Badge with high contrast border and readable text
                         let (status_text, border_color, text_color) = match &status {
-                            AccountStatus::Boosting => (strings.status_boosting, Color32::from_rgb(46, 204, 113), Color32::from_rgb(80, 240, 140)),
-                            AccountStatus::Connecting => (strings.status_connecting, Color32::from_rgb(255, 190, 60), Color32::from_rgb(255, 215, 100)),
-                            AccountStatus::AwaitingSteamGuard { .. } => (strings.status_guard_needed, Color32::from_rgb(255, 120, 60), Color32::from_rgb(255, 160, 100)),
-                            AccountStatus::PausedForGame { .. } => (strings.status_paused_game, Color32::from_rgb(255, 200, 70), Color32::from_rgb(255, 220, 120)),
-                            AccountStatus::Reconnecting { .. } => (strings.status_reconnecting, Color32::from_rgb(120, 180, 255), Color32::from_rgb(160, 210, 255)),
-                            AccountStatus::Error(_e) => (strings.status_error, Color32::from_rgb(255, 90, 90), Color32::from_rgb(255, 130, 130)),
-                            AccountStatus::Idle => (strings.status_idle, Color32::from_rgb(130, 145, 165), Color32::from_rgb(170, 185, 205)),
+                            AccountStatus::Boosting => (strings.status_boosting.to_string(), Color32::from_rgb(46, 204, 113), Color32::from_rgb(80, 240, 140)),
+                            AccountStatus::Connecting => (strings.status_connecting.to_string(), Color32::from_rgb(255, 190, 60), Color32::from_rgb(255, 215, 100)),
+                            AccountStatus::AwaitingSteamGuard { .. } => (strings.status_guard_needed.to_string(), Color32::from_rgb(255, 115, 50), Color32::from_rgb(255, 160, 100)),
+                            AccountStatus::PausedForGame { app_name, .. } => (format!("{} ({})", strings.status_paused_game, app_name), Color32::from_rgb(255, 145, 35), Color32::from_rgb(255, 175, 75)),
+                            AccountStatus::Reconnecting { attempt, retry_in_secs } => (format!("{} (#{} · {}s)", strings.status_reconnecting, attempt, retry_in_secs), Color32::from_rgb(255, 200, 60), Color32::from_rgb(255, 220, 115)),
+                            AccountStatus::Error(_e) => (strings.status_error.to_string(), Color32::from_rgb(255, 90, 90), Color32::from_rgb(255, 130, 130)),
+                            AccountStatus::Idle => (strings.status_idle.to_string(), Color32::from_rgb(130, 145, 165), Color32::from_rgb(170, 185, 205)),
                         };
 
                         egui::Frame::none()

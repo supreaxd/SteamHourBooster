@@ -1,5 +1,6 @@
 pub mod accounts;
 pub mod active_drops;
+pub mod backdrop;
 pub mod components;
 pub mod dashboard;
 pub mod inventory;

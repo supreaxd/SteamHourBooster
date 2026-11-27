@@ -1,45 +1,41 @@
-# 🚀 SupBooster v1.3.0 (Major Update — Liquid Glass, Prism UI, Trade Consolidate & Pricing Fix)
+# 🚀 SupBooster v1.4.0 (Live Behind-Window Liquid Glass, Steam In-Game & AFK Fix, Trade Reliability)
 
-> **Languages / Diller / Языки:** **English (Main)** · [🇹🇷 Türkçe](#-türkçe-sürüm-notları-v130) · [🇷🇺 Русский](#-примечания-к-выпуску-v130)
+> **Languages / Diller / Языки:** **English (Main)** · [🇹🇷 Türkçe](#-türkçe-sürüm-notları-v140) · [🇷🇺 Русский](#-примечания-к-выпуску-v140)
 
-Welcome to **v1.3.0 Major Update** of **SupBooster** (`SupBoost.exe`)! This major release transforms the application with the Prism UI dark glass layout, an ultra-transparent **Liquid Glass** engine with specular edge refraction, working **Trade Consolidate** with mobile confirmation alerts, **Account Balance** with Desktop CSV export, fixed **Market Pricing** strategies, and full localization.
-
----
-
-### ✨ 1. Prism UI & Liquid Glass Theme Engine
-- **New `Liquid Glass` Mode (`ThemeMode::LiquidGlass`):** Ultra-transparent frosted background with `window-vibrancy` Acrylic/Blur and crisp specular edge-refraction borders (`14px` rounded glass cards), alongside enhanced `Transparent (Acrylic)`, `Dark`, `Light`, and `System`.
-- **Fixed Transparency & Color Pickers:** Fixed the alpha slider snapping back to `255` on Surface Tint; added a dedicated **Glass Opacity** slider (`10..255`) and pure RGB pickers for Text and Accent colors.
-- **Light Theme Contrast & Hover Fix:** Forced high-contrast black text across all widgets in Light mode and added clean gray hover fills so hovered sidebar tabs never disappear.
-- **Cleaner Sidebar & Wider Window:** Widened default window to `1240x760`, removed redundant `Tools -> Accounts` and `● Boosting` label, added collapsible `▾ ACCOUNTS` with direct click-to-edit on any account (and Dashboard cards), pinned `Changelogs` + `Settings (⚙)` cleanly at the bottom without overlap or clipping, and removed the non-functional top-right search bar.
-
-### ⚖️ 2. Trade Consolidate Fix, Item Selection & Account Balance
-- **Steam Trade API Preflight & Session Fix:** Fixed `Invalid JSON response from Steam Trade API` by extracting `sessionid` cookies from `settoken`, running a preflight `GET` on the trade offer page with `X-Requested-With: XMLHttpRequest`, and surfacing exact Steam error messages if a session expired or accounts aren't friends.
-- **Per-Item Trade Selection, Auto-Send Cards & Mobile Confirmation Box:** Added checkboxes for every tradable item, `Select All` / `Deselect All` controls, an **Auto-send newly dropped cards to Target Main Account** option, clean localized `Consolidate` / `Topla` button naming, and a **Steam Guard Mobile Confirmation** info banner shown upon successful offer creation.
-- **Account Click-to-Edit & Delete Confirmation:** Removed the pencil button in Accounts so clicking any account card opens it directly, clicking `🗑` shows a confirmation dialog before deleting, and clicking accounts in Dashboard toggles their boosted games.
-- **Live Account Balance & Desktop CSV Export:** Displays live cached inventory value (`$X.XX`), card count, sold net/gross earnings, and boosted hours per account with `Refresh All Values` and direct `SupBooster_Balance.csv` export to Desktop.
-
-### 🛒 3. Market Pricing Strategies & Steam CM Ping Monitor
-- **4 Real Pricing Strategies:** `Undercut (-$0.01)`, `Instant Sell`, `Market / Median Price`, and `Custom Offset` now compute real prices across item rows, bottom bulk bar, confirmation modal, and Steam `/market/sellitem/` API payloads.
-- **Live Steam CM Ping & Quality:** Background TCP latency monitor in the bottom status bar (`Good` / `Fair` / `Poor` / `No Connection`).
-
-### 🛠️ 4. Reliability, Tray, UI Scale, Logs & Telegram
-- **System Tray Event Handlers:** Fixed tray right-click menu buttons (`Open SupBooster`, `Start All`, `Stop All`, `Exit`) to respond immediately even when minimized.
-- **Smooth UI Scale Slider & Misc Settings:** Fixed UI zoom oscillation while dragging by committing scale on release; renamed `Security` to `Misc` with silent background DPAPI encryption.
-- **Dedicated Logs Tab, Instant Auto-Save & Telegram:** Top-to-bottom auto-scrolling Logs tab, immediate `config.json` saving, and Telegram `/lang` + `/addaccount <user> | <pass>`.
+Welcome to **v1.4.0** of **SupBooster** (`SupBoost.exe`)! This release introduces a live behind-window **Liquid Glass & Blur** compositor with symmetric 4-edge optical refraction, native borderless window resizing, immediate Steam **In-Game (orange)** & **Waiting** state handling, an **AFK Auto-Responder** duplicate-message fix, and deeper **Steam Trade Consolidate** reliability fixes.
 
 ---
 
-# 🇹🇷 Türkçe Sürüm Notları (v1.3.0)
+### ✨ 1. Live Behind-Window Liquid Glass, Blur Slider & Borderless UX
+- **Live Behind-Window Blur Compositor (`backdrop.rs`):** Replaced static wallpaper-only blur with a live Windows `PrintWindow` + wallpaper compositor (with safe single-monitor Magnification fallback) so Liquid Glass and Blur modes smoothly frost actual windows behind SupBooster without multi-monitor crashes or scroll flicker.
+- **Refined `Blur` Mode & 0.0–10.0 Slider:** Renamed `Transparent` to `Blur` (preserving backward config compatibility) and added a fine-grained **Blur Intensity** slider (`0.0 = Clear`, `10.0 = Heavy`, default `6.0`) with a gentle progressive curve.
+- **Symmetric 4-Side Optical Glass Bending:** Added a 26px curved lens UV refraction mesh across top, bottom, left, and right edges paired with a 5-ring translucent perimeter meniscus shimmer, themed TopBar/StatusBar chrome, and +5px frame padding so borders never crowd text or icons.
+- **Native 8-Way Borderless Resizing:** Added Windows `WM_NCHITTEST` subclassing so all 4 edges and corners resize smoothly and support Aero Snap while leaving TopBar buttons untouched.
 
-- **Prism UI & Yeni `Liquid Glass (Tam Şeffaf)` Teması:** Kenarları ışık kıran buzlu cam çerçeveleri, artırılmış `Acrylic` şeffaflık, serbest bırakılmış şeffaflık (alfa) seçici ve bağımsız **Cam Opaklığı** kaydırıcısı eklendi. Aydınlık temada tüm yazılar her durumda siyah olacak şekilde düzeltildi; sekme üzerine gelindiğinde gri vurgu eklenerek görünmez olma sorunu giderildi.
-- **Sol Menü, Dashboard & Ayarlar Düzeni:** Genişletilebilir `ACCOUNTS` listesi, listeden veya Dashboard'dan doğrudan hesap ayarlarına geçiş, alt bölümde kesilmeyen `ACTIVE BOOST / DROPS` kartı ve en altta `Changelogs` + `⚙ Ayarlar` ikonu. `Security` sekmesi `Misc` olarak sadeleştirildi (DPAPI arka planda sessizce aktif).
-- **Takas (`Topla`) Düzeltmesi & Ürün Seçimi:** Steam Trade API oturum/preflight doğrulaması düzeltildi ve gerçek Steam hata mesajları gösterildi. Takas yapılacak ürünleri tek tek seçme / `Tümünü Seç`, parantezsiz `Topla` düğmesi, telefonunuza mobil onay bildirimi gittiğini gösteren bilgilendirme kutusu ve Masaüstüne doğrudan `SupBooster_Balance.csv` dışa aktarma eklendi.
-- **Pazar Stratejileri, Tray & Ölçek Slider:** `Undercut`, `Instant Sell`, `Pazar Fiyatı` ve `Özel Ofset` gerçek fiyatlarla çalışır hale getirildi; System Tray sağ tık butonları ve arayüz ölçeği kaydırıcısı düzeltildi; Telegram `/lang` ve `/addaccount <kullanıcı> | <şifre>` komutları eklendi.
+### 🎮 2. Steam Session, In-Game Status & AFK Auto-Responder Fix
+- **Immediate In-Game Detection (Orange Status):** Subscribes to `CMsgClientPlayingSessionState` before sending `GamesPlayed`; if you are already playing a game on Steam, boosting pauses automatically with an orange In-Game indicator and resumes cleanly when you exit.
+- **Resilient Waiting / Reconnecting Fallback:** Transient Steam server discovery timeouts or connection drops now enter a `Waiting / Reconnecting` backoff state instead of stalling in an error state.
+- **AFK Duplicate Reply Fix:** Fixed the AFK Auto-Responder sending the same auto-reply twice (modern `CFriendMessages.SendMessage` is used first, falling back to legacy `CMsgClientFriendMsg` only if the modern RPC fails).
+
+### ⚖️ 3. Steam Trade Consolidate & Inventory Reliability
+- **Exact `(classid, instanceid)` Matching:** Fixed `parse_inventory_json` matching only `classid`, preventing non-tradable item variants from being flagged as tradable and causing `(11)` errors.
+- **Expanded Inventory Fetch (`count=500`) & Clean Session Handshake:** Increased inventory fetch size from 75 to 500 items per context, disabled `reqwest` internal `cookie_store` conflicts in favor of clean single-header `Cookie` & `sessionid` negotiation, trimmed `#` fragments from Trade URLs, and removed sent assets from cache and selection automatically.
+- **Clear `(15)` / `(11)` Steam Diagnostics:** Surfaces actionable hints when Steam returns `AccessDenied (15)` (friendship/Trade URL token/pending limit) or `InvalidState (11)` (trade-lock/already offered item).
 
 ---
 
-# 🇷🇺 Примечания к выпуску (v1.3.0)
+# 🇹🇷 Türkçe Sürüm Notları (v1.4.0)
 
-- **Prism UI и новая тема `Liquid Glass`:** Усиленная прозрачность, преломляющие края стекла, исправленный ползунок альфа-канала и ползунок прозрачности стекла, а также чёрный текст и серый hover в Светлой теме.
-- **Исправление обменов и Баланс:** Исправлена ошибка `Invalid JSON` при отправке трейдов (preflight-запрос и `sessionid`), добавлен выбор предметов (`Выбрать все`), баннер уведомления о подтверждении в Steam Mobile, живая стоимость инвентаря и экспорт `SupBooster_Balance.csv` на Рабочий стол.
-- **Стратегии цен, Трей и Масштаб:** Реальный расчёт для 4 стратегий продажи, исправленные кнопки трея, плавный ползунок масштаба интерфейса, отдельная вкладка логов и команды Telegram `/lang`, `/addaccount`.
+- **Arkadaki Pencereleri Canlı Blurlayan Liquid Glass & Blur Motoru:** Sadece masaüstü duvar kağıdını değil, uygulamanın arkasındaki aktif pencereleri canlı olarak yakalayıp blurlayan yeni kompozitör (`PrintWindow` + güvenli tek monitör desteği) eklendi; çoklu monitör geçiş çökmesi ve kaydırma titremesi giderildi.
+- **Yeni `Blur` Modu, Detaylı 0.0–10.0 Slider & 4 Kenarda Eşit Bükülme:** `Transparent` modu `Blur` olarak adlandırıldı ve varsayılan `6.0` seviyesinde yumuşak artışlı `0.0–10.0` bulanıklık kaydırıcısı eklendi. Pencerenin tüm 4 kenarında (üst, alt, sol, sağ) eşit 26px optik cam bükülmesi, temayla uyumlu üst/alt çubuk, genişletilmiş çerçeve boşlukları ve 8 yönlü kenar/köşe boyutlandırma (Aero Snap dahil) eklendi.
+- **Oyunda (Turuncu) İkonu, Waiting Modu & AFK Çift Mesaj Düzeltmesi:** Hesapta oyun açıkken kasma otomatik duraklatılarak turuncu ikonla gösterilir; Steam sunucularına bağlanılamadığında hata yerine `Waiting / Reconnecting` bekleme moduna geçilir ve AFK otomatik yanıtlayıcının aynı mesajı 2 kez göndermesi düzeltildi.
+- **Steam Takas & Envanter Güvenilirliği:** Envanter ayrıştırmada `(classid, instanceid)` eşleştirmesi düzeltildi (takas kapalı öğelerin yanlışlıkla seçilmesi engellendi), envanter çekme limiti `500`'e çıkarıldı, çerez/`sessionid` çakışması giderildi, gönderilen öğeler önbellekten temizlendi ve `(15)` / `(11)` hataları için açıklayıcı bilgiler eklendi.
+
+---
+
+# 🇷🇺 Примечания к выпуску (v1.4.0)
+
+- **Живое размытие окон за приложением (Liquid Glass & Blur):** Новый композитор (`PrintWindow` с безопасным fallback) размывает реальные окна позади SupBooster вместо одних обоев рабочего стола, устраняя вылеты при переносе между мониторами и мерцание при прокрутке.
+- **Режим `Blur`, плавный ползунок 0.0–10.0 и симметричное преломление:** Режим `Transparent` переименован в `Blur` (по умолчанию `6.0`), добавлено симметричное 26px преломление стекла по всем 4 сторонам окна, единый стиль верхней/нижней панели, расширенные отступы рамок и изменение размера окна за все 4 края и угла (`WM_NCHITTEST`).
+- **Оранжевый индикатор «В игре», режим Waiting и фикс двойного ответа AFK:** Мгновенная проверка `CMsgClientPlayingSessionState` ставит буст на паузу (оранжевый значок), временные сбои подключения переводятся в ожидание с повтором, а автоответчик AFK больше не дублирует сообщения.
+- **Надёжность обменов Steam:** Исправлено сопоставление `(classid, instanceid)` в инвентаре, увеличен лимит загрузки до `500`, устранены конфликты `Cookie`/`sessionid`, очищаются отправленные предметы из кэша и добавлены подсказки для ошибок Steam `(15)` и `(11)`.

@@ -239,12 +239,17 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
         let mut reconnect_attempt = 0u32;
 
         'reconnect_loop: loop {
-            // Sunucuları keşfet
-            let server_list = match ServerList::discover().await {
-                Ok(sl) => sl,
-                Err(e) => {
-                    logger::log_error(&format!("[{}] Unable to reach Steam servers: {}", username, e));
-                    debug_log::log_packet(&username, PacketDirection::Inbound, "ServerList::discover", &format!("Error: {}", e), PacketCategory::Session);
+            if *stop_rx.borrow() || stop_rx.has_changed().is_err() {
+                break;
+            }
+
+            // Sunucuları keşfet (15 sn zaman aşımı ile — bağlanılamazsa Waiting durumuna düşer)
+            let discover_res = tokio::time::timeout(Duration::from_secs(15), ServerList::discover()).await;
+            let server_list = match discover_res {
+                Ok(Ok(sl)) => sl,
+                Ok(Err(e)) => {
+                    logger::log_warn(&format!("[{}] Unable to reach Steam servers: {}. Waiting {}s...", username, e, reconnect_delay));
+                    debug_log::log_packet(&username, PacketDirection::Inbound, "ServerList::discover", &format!("Waiting: {}", e), PacketCategory::Session);
                     {
                         let mut a = acc_for_task.lock().unwrap();
                         a.status = AccountStatus::Reconnecting {
@@ -252,7 +257,31 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
                             retry_in_secs: reconnect_delay,
                         };
                     }
-                    tokio::time::sleep(Duration::from_secs(reconnect_delay)).await;
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_secs(reconnect_delay)) => {}
+                        res = stop_rx.changed() => {
+                            if res.is_err() || *stop_rx.borrow() { break 'reconnect_loop; }
+                        }
+                    }
+                    reconnect_delay = (reconnect_delay * 2).min(60);
+                    reconnect_attempt += 1;
+                    continue 'reconnect_loop;
+                }
+                Err(_) => {
+                    logger::log_warn(&format!("[{}] Steam server discovery timed out. Waiting {}s...", username, reconnect_delay));
+                    {
+                        let mut a = acc_for_task.lock().unwrap();
+                        a.status = AccountStatus::Reconnecting {
+                            attempt: reconnect_attempt + 1,
+                            retry_in_secs: reconnect_delay,
+                        };
+                    }
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_secs(reconnect_delay)) => {}
+                        res = stop_rx.changed() => {
+                            if res.is_err() || *stop_rx.borrow() { break 'reconnect_loop; }
+                        }
+                    }
                     reconnect_delay = (reconnect_delay * 2).min(60);
                     reconnect_attempt += 1;
                     continue 'reconnect_loop;
@@ -292,10 +321,10 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
                 }
             };
 
-            let connection_res = if let Some(ref token) = token_to_use {
-                match Connection::access(&server_list, &username, token).await {
-                    Ok(conn) => Ok(conn),
-                    Err(err) => {
+            let connection_res: Result<Connection, String> = if let Some(ref token) = token_to_use {
+                match tokio::time::timeout(Duration::from_secs(20), Connection::access(&server_list, &username, token)).await {
+                    Ok(Ok(conn)) => Ok(conn),
+                    Ok(Err(err)) => {
                         if !password.is_empty() {
                             let (rx, tx) = get_handler_streams(&mut worker_rx_opt, &mut worker_tx_opt, id, acc_for_task.clone());
                             let handler = UserProvidedAuthConfirmationHandler::new(rx, tx);
@@ -307,20 +336,30 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
                                 handler.or(DeviceConfirmationHandler),
                             )
                             .await
+                            .map_err(|e| e.to_string())
                         } else {
-                            Err(err)
+                            Err(err.to_string())
                         }
                     }
+                    Err(_) => Err("Connection timed out while contacting Steam".to_string()),
                 }
             } else if let Some(ref sec) = shared_secret {
-                Connection::login(
-                    &server_list,
-                    &username,
-                    &password,
-                    FileGuardDataStore::user_cache(),
-                    SharedSecretAuthConfirmationHandler::new(sec),
+                match tokio::time::timeout(
+                    Duration::from_secs(25),
+                    Connection::login(
+                        &server_list,
+                        &username,
+                        &password,
+                        FileGuardDataStore::user_cache(),
+                        SharedSecretAuthConfirmationHandler::new(sec),
+                    ),
                 )
                 .await
+                {
+                    Ok(Ok(c)) => Ok(c),
+                    Ok(Err(e)) => Err(e.to_string()),
+                    Err(_) => Err("Connection timed out while logging in".to_string()),
+                }
             } else {
                 let (rx, tx) = get_handler_streams(&mut worker_rx_opt, &mut worker_tx_opt, id, acc_for_task.clone());
                 let handler = UserProvidedAuthConfirmationHandler::new(rx, tx);
@@ -332,6 +371,7 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
                     handler.or(DeviceConfirmationHandler),
                 )
                 .await
+                .map_err(|e| e.to_string())
             };
 
             let connection = match connection_res {
@@ -340,22 +380,59 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
                     reconnect_attempt = 0;
                     conn
                 }
-                Err(e) => {
-                    let err_str = e.to_string();
-                    logger::log_error(&format!("[{}] Login error: {}", username, err_str));
+                Err(err_str) => {
                     debug_log::log_packet(&username, PacketDirection::Inbound, "Login::Error", &err_str, PacketCategory::Session);
-                    let friendly_err = if err_str.contains("InvalidCredentials") || err_str.contains("AccessToken") {
-                        "Session key invalid or expired. Please log in via QR code again.".to_string()
-                    } else if err_str.contains("InvalidPassword") {
-                        "Invalid password entered!".to_string()
-                    } else {
-                        format!("Login failed: {}", e)
-                    };
-                    let mut a = acc_for_task.lock().unwrap();
-                    a.status = AccountStatus::Error(friendly_err);
-                    return;
+                    let is_fatal_auth = err_str.contains("InvalidPassword")
+                        || err_str.contains("AccountDisabled")
+                        || err_str.contains("AccountNotFound")
+                        || ((err_str.contains("InvalidCredentials") || err_str.contains("AccessToken")) && password.is_empty());
+
+                    if is_fatal_auth {
+                        let friendly_err = if err_str.contains("InvalidCredentials") || err_str.contains("AccessToken") {
+                            "Session key invalid or expired. Please log in via QR code again.".to_string()
+                        } else if err_str.contains("InvalidPassword") {
+                            "Invalid password entered!".to_string()
+                        } else {
+                            format!("Login failed: {}", err_str)
+                        };
+                        logger::log_error(&format!("[{}] Login error: {}", username, err_str));
+                        let mut a = acc_for_task.lock().unwrap();
+                        a.status = AccountStatus::Error(friendly_err);
+                        return;
+                    }
+
+                    // Bağlanılamadığında hata yerine Waiting durumuna düş ve tekrar dene
+                    logger::log_warn(&format!(
+                        "[{}] Unable to connect to Steam ({}). Entering Waiting state for {}s (Attempt #{})...",
+                        username, err_str, reconnect_delay, reconnect_attempt + 1
+                    ));
+                    {
+                        let mut a = acc_for_task.lock().unwrap();
+                        a.status = AccountStatus::Reconnecting {
+                            attempt: reconnect_attempt + 1,
+                            retry_in_secs: reconnect_delay,
+                        };
+                    }
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_secs(reconnect_delay)) => {}
+                        res = stop_rx.changed() => {
+                            if res.is_err() || *stop_rx.borrow() { break 'reconnect_loop; }
+                        }
+                    }
+                    reconnect_delay = (reconnect_delay * 2).min(60);
+                    reconnect_attempt += 1;
+                    continue 'reconnect_loop;
                 }
             };
+
+            // Subscribe IMMEDIATELY to playing session conflict stream BEFORE sending any RPC or GamesPlayed
+            let mut session_stream = connection.on::<CMsgClientPlayingSessionState>();
+            let mut modern_chat_stream = connection.on_notification::<CFriendMessages_IncomingMessage_Notification>();
+            let mut chat_room_stream = connection.on_notification::<CChatRoom_IncomingChatMessage_Notification>();
+            let mut legacy_friend_stream = connection.on::<CMsgClientFriendMsgIncoming>();
+            let mut item_announcement_stream = connection.on::<CMsgClientItemAnnouncements>();
+            let mut is_paused_for_game = false;
+            let mut initial_playing_app: u32 = 0;
 
             // Giriş başarılı, token'ı kaydet
             {
@@ -431,11 +508,45 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
             let hours_now = { acc_for_task.lock().unwrap().hours_boosted };
             let (mut status_msg, mut games_msg) = build_presence(&current_games, &current_title, current_persona, hours_now);
 
-            // İlk paketleri gönder
+            // İlk paketleri gönder (önce tamponda bekleyen CMsgClientPlayingSessionState kontrolü yap)
+            while let Ok(Some(Ok(st))) = tokio::time::timeout(Duration::from_millis(80), session_stream.next()).await {
+                let is_blocked = st.playing_blocked.unwrap_or(false);
+                let playing_app = st.playing_app.unwrap_or(0);
+                if is_blocked {
+                    is_paused_for_game = true;
+                    initial_playing_app = playing_app;
+                } else {
+                    is_paused_for_game = false;
+                    initial_playing_app = 0;
+                }
+            }
+
             let _ = connection.send(status_msg.clone()).await;
             debug_log::log_packet(&username, PacketDirection::Outbound, "CMsgClientChangeStatus", &format!("Persona: {:?}", current_persona), PacketCategory::Presence);
 
-            if let Err(e) = connection.send(games_msg.clone()).await {
+            if is_paused_for_game {
+                let app_name = {
+                    let mut a = acc_for_task.lock().unwrap();
+                    let name = a
+                        .owned_games
+                        .iter()
+                        .find(|g| g.app_id == initial_playing_app)
+                        .map(|g| g.name.clone())
+                        .unwrap_or_else(|| {
+                            if initial_playing_app > 0 {
+                                format!("AppID {}", initial_playing_app)
+                            } else {
+                                "Steam Game".to_string()
+                            }
+                        });
+                    a.status = AccountStatus::PausedForGame {
+                        app_id: initial_playing_app,
+                        app_name: name.clone(),
+                    };
+                    name
+                };
+                logger::log_warn(&format!("[{}] 🎮 Already in-game ({}). Boosting paused!", username, app_name));
+            } else if let Err(e) = connection.send(games_msg.clone()).await {
                 logger::log_error(&format!("[{}] Failed to send games played packet: {}", username, e));
             } else {
                 let dyn_title = format_dynamic_title(current_title.trim(), hours_now, current_games.len());
@@ -475,13 +586,6 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
                 crate::inventory::check_inventory_tracker(inv_user, my_steam_id, inv_proxy).await;
             });
 
-            // Akışlar
-            let mut session_stream = connection.on::<CMsgClientPlayingSessionState>();
-            let mut modern_chat_stream = connection.on_notification::<CFriendMessages_IncomingMessage_Notification>();
-            let mut chat_room_stream = connection.on_notification::<CChatRoom_IncomingChatMessage_Notification>();
-            let mut legacy_friend_stream = connection.on::<CMsgClientFriendMsgIncoming>();
-            let mut item_announcement_stream = connection.on::<CMsgClientItemAnnouncements>();
-            let mut is_paused_for_game = false;
             let mut interval = tokio::time::interval_at(
                 tokio::time::Instant::now() + Duration::from_secs(60),
                 Duration::from_secs(60),
@@ -506,24 +610,31 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
 
                     let modern_res = conn.service_method(modern_req).await;
 
-                    let mut legacy_reply = CMsgClientFriendMsg::new();
-                    legacy_reply.set_steamid(target_id);
-                    legacy_reply.set_chat_entry_type(1);
-                    legacy_reply.set_message(text.as_bytes().to_vec());
-                    let legacy_res = conn.send(legacy_reply).await;
-
-                    if modern_res.is_ok() || legacy_res.is_ok() {
+                    if modern_res.is_ok() {
                         logger::log_success(&format!(
                             "💬 [AFK REPLIED] [{}] -> Friend ({}) | Message: \"{}\"",
                             user, target_id, text
                         ));
                     } else {
-                        logger::log_warn(&format!(
-                            "[{}] Failed to deliver AFK reply. Modern: {:?}, Legacy: {:?}",
-                            user,
-                            modern_res.err(),
-                            legacy_res.err()
-                        ));
+                        let mut legacy_reply = CMsgClientFriendMsg::new();
+                        legacy_reply.set_steamid(target_id);
+                        legacy_reply.set_chat_entry_type(1);
+                        legacy_reply.set_message(text.as_bytes().to_vec());
+                        let legacy_res = conn.send(legacy_reply).await;
+
+                        if legacy_res.is_ok() {
+                            logger::log_success(&format!(
+                                "💬 [AFK REPLIED] [{}] -> Friend ({}) | Message: \"{}\"",
+                                user, target_id, text
+                            ));
+                        } else {
+                            logger::log_warn(&format!(
+                                "[{}] Failed to deliver AFK reply. Modern: {:?}, Legacy: {:?}",
+                                user,
+                                modern_res.err(),
+                                legacy_res.err()
+                            ));
+                        }
                     }
                 });
             };
@@ -544,16 +655,33 @@ pub fn start_boost(account: Arc<Mutex<Account>>) {
                                     PacketCategory::Session,
                                 );
 
-                                if is_blocked && !is_paused_for_game {
-                                    is_paused_for_game = true;
-                                    logger::log_warn(&format!("[{}] 🎮 Real game detected (AppID: {}). Boosting automatically paused!", username, playing_app));
-                                    let empty_msg = CMsgClientGamesPlayed::new();
-                                    let _ = connection.send(empty_msg).await;
-                                    let mut a = acc_for_task.lock().unwrap();
-                                    a.status = AccountStatus::PausedForGame {
-                                        app_id: playing_app,
-                                        app_name: format!("AppID {}", playing_app),
+                                if is_blocked {
+                                    if !is_paused_for_game {
+                                        is_paused_for_game = true;
+                                        let empty_msg = CMsgClientGamesPlayed::new();
+                                        let _ = connection.send(empty_msg).await;
+                                    }
+                                    let resolved_name = {
+                                        let mut a = acc_for_task.lock().unwrap();
+                                        let name = a
+                                            .owned_games
+                                            .iter()
+                                            .find(|g| g.app_id == playing_app)
+                                            .map(|g| g.name.clone())
+                                            .unwrap_or_else(|| {
+                                                if playing_app > 0 {
+                                                    format!("AppID {}", playing_app)
+                                                } else {
+                                                    "Steam Game".to_string()
+                                                }
+                                            });
+                                        a.status = AccountStatus::PausedForGame {
+                                            app_id: playing_app,
+                                            app_name: name.clone(),
+                                        };
+                                        name
                                     };
+                                    logger::log_warn(&format!("[{}] 🎮 Real game detected ({}). Boosting paused!", username, resolved_name));
                                 } else if !is_blocked && is_paused_for_game {
                                     is_paused_for_game = false;
                                     logger::log_success(&format!("[{}] 🎮 Real game closed. Resuming hour boosting!", username));

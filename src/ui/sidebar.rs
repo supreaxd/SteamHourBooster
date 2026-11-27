@@ -170,10 +170,20 @@ impl Sidebar {
                         if let Ok(a) = arc.lock() {
                             let dot_color = match &a.status {
                                 AccountStatus::Boosting => Color32::from_rgb(80, 225, 130),
-                                AccountStatus::Connecting | AccountStatus::Reconnecting { .. } => Color32::from_rgb(255, 195, 65),
-                                AccountStatus::AwaitingSteamGuard { .. } => Color32::from_rgb(255, 150, 50),
-                                AccountStatus::Error(_) => Color32::from_rgb(255, 95, 95),
-                                _ => Color32::from_rgb(120, 130, 150),
+                                AccountStatus::PausedForGame { .. } => Color32::from_rgb(255, 145, 35),
+                                AccountStatus::Connecting | AccountStatus::Reconnecting { .. } => Color32::from_rgb(255, 200, 60),
+                                AccountStatus::AwaitingSteamGuard { .. } => Color32::from_rgb(255, 115, 50),
+                                AccountStatus::Error(_) => Color32::from_rgb(255, 85, 85),
+                                AccountStatus::Idle => Color32::from_rgb(120, 130, 150),
+                            };
+                            let status_tip = match &a.status {
+                                AccountStatus::Boosting => format!("● {}", strings.status_boosting),
+                                AccountStatus::PausedForGame { app_name, .. } => format!("🎮 {} ({})", strings.status_paused_game, app_name),
+                                AccountStatus::Reconnecting { attempt, retry_in_secs } => format!("⏳ {} (#{} · {}s)", strings.status_reconnecting, attempt, retry_in_secs),
+                                AccountStatus::Connecting => format!("⏳ {}", strings.status_connecting),
+                                AccountStatus::AwaitingSteamGuard { .. } => format!("🛡 {}", strings.status_guard_needed),
+                                AccountStatus::Error(e) => format!("⚠ {}", e),
+                                AccountStatus::Idle => format!("● {}", strings.status_idle),
                             };
                             let is_acc_active = *current_tab == NavTab::Accounts && selected_account_id == Some(a.id);
                             if draw_prism_nav_item(
@@ -187,6 +197,7 @@ impl Sidebar {
                                 accent,
                                 text_color,
                             )
+                            .on_hover_text(status_tip)
                             .clicked()
                             {
                                 action = SidebarAction::SelectAccount(a.id);
@@ -271,7 +282,7 @@ impl Sidebar {
                             let theme_icon = match *theme_mode {
                                 ThemeMode::Dark => "🌙",
                                 ThemeMode::Light => "☀",
-                                ThemeMode::Transparent => "🌫",
+                                ThemeMode::Blur => "🌫",
                                 ThemeMode::LiquidGlass => "💎",
                                 ThemeMode::System => "💻",
                             };
@@ -281,8 +292,8 @@ impl Sidebar {
                                 .clicked()
                             {
                                 *theme_mode = match *theme_mode {
-                                    ThemeMode::Dark => ThemeMode::Transparent,
-                                    ThemeMode::Transparent => ThemeMode::LiquidGlass,
+                                    ThemeMode::Dark => ThemeMode::Blur,
+                                    ThemeMode::Blur => ThemeMode::LiquidGlass,
                                     ThemeMode::LiquidGlass => ThemeMode::Light,
                                     ThemeMode::Light => ThemeMode::Dark,
                                     ThemeMode::System => ThemeMode::Dark,
@@ -293,11 +304,11 @@ impl Sidebar {
                     },
                 );
 
-                ui.add_space(16.0);
+                ui.add_space(26.0);
 
-                // Live Boosting / Card Drops Summary Box (narrower, higher contrast text, clean margins)
+                // Live Boosting / Card Drops Summary Box (narrower, shifted 10px up & 5px left, high contrast)
                 let card_stroke = if *theme_mode == ThemeMode::LiquidGlass {
-                    Stroke::new(1.25_f32, Color32::from_rgba_unmultiplied(235, 245, 255, 125))
+                    Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 38))
                 } else if *theme_mode == ThemeMode::Light {
                     Stroke::new(1.0_f32, Color32::from_rgb(200, 210, 224))
                 } else {
@@ -305,6 +316,9 @@ impl Sidebar {
                 };
                 let card_fill = if *theme_mode == ThemeMode::Light {
                     Color32::from_rgb(232, 238, 246)
+                } else if matches!(*theme_mode, ThemeMode::LiquidGlass | ThemeMode::Blur) {
+                    let a = (colors.glass_alpha as f32 * 0.42 + colors.blur_level.clamp(0.0, 10.0) * 1.5).clamp(14.0, 195.0) as u8;
+                    Color32::from_rgba_unmultiplied(colors.surface[0], colors.surface[1], colors.surface[2], a)
                 } else {
                     Color32::from_rgba_unmultiplied(18, 22, 34, 90)
                 };
@@ -320,8 +334,8 @@ impl Sidebar {
                 };
 
                 ui.horizontal(|ui| {
-                    ui.add_space(10.0);
-                    egui::Frame::none()
+                    ui.add_space(5.0);
+                    let box_resp = egui::Frame::none()
                         .fill(card_fill)
                         .stroke(card_stroke)
                         .rounding(Rounding::same(12.0))
@@ -355,6 +369,9 @@ impl Sidebar {
                             };
                             prism_progress_bar(ui, frac, ui.available_width(), 4.0, accent);
                         });
+                    if *theme_mode == ThemeMode::LiquidGlass {
+                        crate::ui::theme::ThemeEngine::paint_liquid_refraction(ui.painter(), box_resp.response.rect, 12.0);
+                    }
                 });
             });
         });
@@ -391,7 +408,7 @@ fn draw_prism_nav_item(
             ui.painter().rect_stroke(
                 rect,
                 Rounding::same(8.0),
-                Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 150)),
+                Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 140)),
             );
         } else if is_hovered {
             let hover_fill = if is_light {

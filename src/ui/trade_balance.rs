@@ -28,6 +28,7 @@ pub struct TradeBalanceView {
     is_sending: Arc<AtomicBool>,
     is_refreshing: Arc<AtomicBool>,
     trade_results: Arc<Mutex<Vec<ConsolidateTradeResult>>>,
+    sent_asset_ids: Arc<Mutex<Vec<String>>>,
     export_status_msg: Option<String>,
 }
 
@@ -44,6 +45,7 @@ impl TradeBalanceView {
             is_sending: Arc::new(AtomicBool::new(false)),
             is_refreshing: Arc::new(AtomicBool::new(false)),
             trade_results: Arc::new(Mutex::new(Vec::new())),
+            sent_asset_ids: Arc::new(Mutex::new(Vec::new())),
             export_status_msg: None,
         }
     }
@@ -146,6 +148,20 @@ impl TradeBalanceView {
             let a = accounts[self.target_account_idx].lock().unwrap();
             (a.username.clone(), a.steam_id)
         };
+
+        if self.custom_trade_url.is_empty() && !settings.auto_send_main_trade_url.trim().is_empty() {
+            self.custom_trade_url = settings.auto_send_main_trade_url.trim().to_string();
+        }
+
+        // Remove any assets that were already sent in completed background trades
+        if let Ok(mut sent) = self.sent_asset_ids.lock() {
+            if !sent.is_empty() {
+                for id in sent.drain(..) {
+                    self.selected_trade_assets.remove(&id);
+                    self.known_trade_assets.remove(&id);
+                }
+            }
+        }
 
         // Keep auto-send target synced with selected main account & trade URL
         if settings.auto_send_drops_to_main {
@@ -317,6 +333,7 @@ impl TradeBalanceView {
                         let send_flag = self.is_sending.clone();
                         send_flag.store(true, Ordering::SeqCst);
                         let results_arc = self.trade_results.clone();
+                        let sent_arc = self.sent_asset_ids.clone();
                         let t_user = target_user.clone();
                         let t_sid = target_sid;
                         let t_url = if self.custom_trade_url.trim().is_empty() {
@@ -339,7 +356,9 @@ impl TradeBalanceView {
                         let ctx = ui.ctx().clone();
                         crate::steam::get_runtime().spawn(async move {
                             let mut out = Vec::new();
+                            let mut sent_ids = Vec::new();
                             for (src_user, tok, proxy, items) in batches {
+                                let batch_ids: Vec<String> = items.iter().map(|it| it.asset_id.clone()).collect();
                                 let res = execute_consolidate_trade(
                                     src_user,
                                     t_user.clone(),
@@ -350,7 +369,15 @@ impl TradeBalanceView {
                                     proxy,
                                 )
                                 .await;
+                                if !matches!(res.status, TradeOfferStatus::Error) {
+                                    sent_ids.extend(batch_ids);
+                                }
                                 out.push(res);
+                            }
+                            if !sent_ids.is_empty() {
+                                if let Ok(mut s_lock) = sent_arc.lock() {
+                                    s_lock.extend(sent_ids);
+                                }
                             }
                             if let Ok(mut lock) = results_arc.lock() {
                                 *lock = out;
@@ -417,7 +444,7 @@ impl TradeBalanceView {
                         TradeOfferStatus::PendingConfirmation => (Color32::from_rgb(255, 190, 50), strings.pick("Pending Confirmation", "Onay Bekliyor", "Ждёт подтверждения")),
                         TradeOfferStatus::Error => (Color32::from_rgb(255, 105, 105), strings.pick("Error", "Hata", "Ошибка")),
                     };
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         ui.label(RichText::new(format!("{} -> {} ({})", r.source_username, r.target_username, r.item_count)).strong());
                         ui.label(RichText::new(format!("[{}]", badge_txt)).color(badge_col).strong());
                         ui.label(RichText::new(&r.message).font(FontId::proportional(11.0)).color(muted));

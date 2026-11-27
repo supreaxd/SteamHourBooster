@@ -283,12 +283,11 @@ impl ModalManager {
                 ui.add_space(4.0);
 
                 let bullets = [
-                    "• SupBooster v1.3.0 Major Update — Prism UI & Liquid Glass: New ultra-transparent Liquid Glass theme with specular edge refraction, customizable Glass Opacity slider, fixed RGB/RGBA color pickers, and guaranteed high-contrast black text & gray hover states in Light theme.",
-                    "• Trade Consolidate Fix & Mobile 2FA Alert: Fixed Steam Trade Offer API sessionid/preflight validation, added real HTTP/Steam error diagnostics, per-item selection checkboxes with Select All / Deselect All, and Mobile Confirmation notification banner.",
-                    "• Account Balance & Desktop CSV Export: Live per-account inventory valuations, total cards earned, net/gross earnings, boosted hours, and direct Desktop CSV export.",
-                    "• Market Pricing Strategy Fix: Undercut (-$0.01), Instant Sell, Market / Median Price, and Custom Offset now compute exact prices across previews, confirmation modals, and Steam Market listings.",
-                    "• Sidebar, Topbar & Steam CM Ping Monitor: Collapsible ACCOUNTS list opening specific accounts, bottom-aligned Changelogs & Active Boost card, System Tray event-handler fix, and live Steam CM latency indicator.",
-                    "• Dedicated Logs Tab, Instant Auto-Save & Bug-Free UI Zoom: Bottom-aligned live logs, immediate config.json persistence, smooth UI scale slider, and full EN/TR/RU localization + Telegram /lang & /addaccount.",
+                    "• SupBooster v1.4.0 Update — Live Behind-Window Liquid Glass & Blur Engine: Real-time compositor (PrintWindow + multi-monitor safe capture) that blurs active windows directly behind SupBooster, smooth 0.0-10.0 Blur Intensity slider (default 6.0), and renamed Blur mode.",
+                    "• 4-Side Optical Glass Refraction & Borderless Resize: Symmetric 26px UV lens refraction and 5-ring perimeter shimmer across all 4 window edges, unified themed top/status bars, expanded frame padding, and native 8-direction Windows edge/corner resizing + Aero Snap.",
+                    "• In-Game Orange Indicator, Waiting Fallback & AFK Fix: Immediate CMsgClientPlayingSessionState check pauses boosting when you are already in-game (orange indicator), enters Waiting/Reconnecting on transient Steam server drops, and eliminates duplicate AFK auto-replies.",
+                    "• Trade Consolidate & Inventory Reliability Fix: Fixed (classid, instanceid) matching so trade-locked variants are never queued, increased inventory fetch limit to 500, fixed Cookie/sessionid handshakes, cleared sent assets from cache/selection, and added Steam (15)/(11) diagnostics.",
+                    "• Core v1.3.0 Features Included: Prism UI dark/light contrast, Account Balance + Desktop CSV export, 4 Market Pricing strategies, Steam CM Ping monitor, Dedicated Logs tab, instant config save, and Telegram /lang & /addaccount.",
                 ];
 
                 for b in &bullets {

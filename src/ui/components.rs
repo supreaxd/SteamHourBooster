@@ -4,7 +4,7 @@ use crate::data::{CustomThemeColors, ThemeMode};
 pub fn surface_panel_fill(mode: ThemeMode, colors: &CustomThemeColors, alpha_boost: u8) -> Color32 {
     match mode {
         ThemeMode::Light => Color32::from_rgb(245, 247, 250),
-        ThemeMode::Transparent => Color32::from_rgba_unmultiplied(
+        ThemeMode::Blur => Color32::from_rgba_unmultiplied(
             colors.surface[0],
             colors.surface[1],
             colors.surface[2],
@@ -21,7 +21,7 @@ pub fn surface_panel_fill(mode: ThemeMode, colors: &CustomThemeColors, alpha_boo
 pub fn glass_stroke(mode: ThemeMode) -> Stroke {
     match mode {
         ThemeMode::Light => Stroke::new(1.0_f32, Color32::from_rgb(215, 222, 232)),
-        ThemeMode::Transparent => Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 34)),
+        ThemeMode::Blur => Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 34)),
         _ => Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 22)),
     }
 }
